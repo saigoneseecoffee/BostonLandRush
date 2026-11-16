@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#dfeaf2">
+<title>Boston Land Rush</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!--
+  Boston Land Rush (Lô Đất Vàng) — V6: Greater Boston bán kính ~35 dặm, ~40 thị trấn, ~500 lô.
+  Mua được mọi nhà có sẵn, lô trống và địa danh. Xây theo mẫu nhà / loại hình kinh doanh,
+  nâng cấp tới cấp 5. Thu nhập tùy loại hình + vị trí + mật độ dân (công thức ẩn trong ECON).
+  Thời gian, giá, thu nhập do máy chủ (Code.gs) quyết định. Song ngữ Anh/Việt.
+  File này do build.py ghép từ src/client.html + src/shared.js — sửa ở src/ rồi chạy build.py.
+  Hook cho app iPhone (WebView): window.LDV.refresh(), window.LDV.logout(), window.LDV.setLang('vi'|'en')
+-->
+<style>
+  :root{ --ink:#1f2a37; --muted:#6b7280; --card:#fffdf6; --line:#e6e0cf; --green:#0f9d76; --green-d:#0b7a5c; --gold:#f5b82e; --bad:#dc2626; }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;background:#dfeaf2;color:var(--ink);overscroll-behavior:none;overflow:hidden}
+  body{font-family:'Baloo 2',system-ui,-apple-system,sans-serif;user-select:none;-webkit-user-select:none;touch-action:none}
+  button{font-family:inherit;cursor:pointer;color:inherit}
+  #scene{position:fixed;inset:0}
+  #scene canvas{display:block;width:100%;height:100%;touch-action:none}
+  .card{background:var(--card);border:1.5px solid var(--line);border-radius:18px;box-shadow:0 4px 14px rgba(31,42,55,.12)}
+  .hud{position:fixed;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top) + 8px) 10px 0;display:flex;gap:8px;align-items:flex-start;pointer-events:none;z-index:5}
+  .hud > *{pointer-events:auto}
+  .leftcol{display:flex;flex-direction:column;gap:6px;min-width:0;flex:0 1 auto}
+  .wallet{display:flex;align-items:center;gap:8px;padding:6px 12px 6px 10px;min-width:0}
+  .wallet .ic{font-size:22px}
+  .wallet b{display:block;font-size:20px;line-height:1.05;white-space:nowrap}
+  .wallet small{display:block;color:var(--muted);font-size:13px;line-height:1.1;white-space:nowrap;max-width:44vw;overflow:hidden;text-overflow:ellipsis}
+  .clock{padding:4px 12px;font-size:14px;font-weight:700;white-space:nowrap;align-self:flex-start}
+  .city{margin-left:auto;padding:6px 12px;text-align:right;line-height:1.1;flex:0 1 auto;min-width:0;overflow:hidden}
+  .city b{font-size:16px;white-space:nowrap} .city small{display:block;color:var(--muted);font-size:13px;white-space:nowrap}
+  .city .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:4px;vertical-align:1px}
+  .city .dot.off{background:var(--bad)}
+  .side{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 70px);display:flex;flex-direction:column;gap:8px;z-index:5}
+  .rb{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;font-size:19px;padding:0}
+  .mockbar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--sheetH, 200px) + 66px);background:#fde047;color:#3b2603;font-size:12px;font-weight:700;padding:1px 10px;border-radius:999px;z-index:4;white-space:nowrap}
+  .hint{position:fixed;left:10px;right:10px;bottom:calc(var(--sheetH, 200px) + 8px);padding:6px 12px;font-size:14px;color:var(--muted);z-index:4;text-align:center;transition:opacity .4s}
+  .collect{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--sheetH, 200px) + 10px);z-index:5;border:none;border-radius:999px;
+    background:linear-gradient(#fcd34d,#f5b82e);color:#3b2603;box-shadow:0 4px 0 #c98a0b,0 6px 16px rgba(0,0,0,.18);min-height:50px;padding:4px 20px 4px 14px;display:flex;align-items:center;gap:8px;font-family:inherit}
+  .collect span{font-size:24px} .collect b{font-size:19px} .collect small{font-size:12px;opacity:.8;max-width:120px;line-height:1.1;text-align:left}
+  .collect:active{transform:translateX(-50%) translateY(3px);box-shadow:0 1px 0 #c98a0b}
+  .collect:disabled{filter:grayscale(.6);opacity:.75}
+  .sheet{position:fixed;left:0;right:0;bottom:0;padding:10px 10px calc(env(safe-area-inset-bottom) + 8px);z-index:6;display:flex;justify-content:center}
+  .sheet .card{width:100%;max-width:620px;padding:10px 10px 8px}
+  .row{display:flex;gap:8px;align-items:center}
+  .info{flex:1;min-width:0;line-height:1.12;padding-left:4px}
+  .info b{font-size:17px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .info small{color:var(--muted);font-size:13.5px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .acts{display:flex;gap:6px;margin-top:8px}
+  .acts .btn{flex:1}
+  .btn{min-height:46px;padding:0 12px;border-radius:14px;border:none;font-weight:800;font-size:15.5px;transition:transform .06s;line-height:1.05}
+  .btn small{display:block;font-weight:600;font-size:12px;opacity:.85}
+  .btn:active{transform:scale(.96)}
+  .btn:disabled{opacity:.45}
+  .buy{background:var(--green);color:#fff;box-shadow:0 3px 0 var(--green-d)}
+  .rot{background:#eef2f0;border:1.5px solid var(--line)}
+  .up{background:#e0edff;border:1.5px solid #bcd3f5;color:#1e3a8a}
+  .nav{display:flex;margin-top:8px;border-top:1.5px solid var(--line);padding-top:4px}
+  .nav button{flex:1;background:none;border:none;min-height:46px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:13px;font-weight:600;line-height:1.1}
+  .nav button span{font-size:19px}
+  .nav i{font-style:normal;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pop{position:fixed;inset:0;background:rgba(31,42,55,.35);z-index:20;display:flex;align-items:flex-end;justify-content:center;padding:10px}
+  .pop .card{width:100%;max-width:560px;max-height:78vh;display:flex;flex-direction:column;padding:14px;margin-bottom:env(safe-area-inset-bottom)}
+  .pop h2{margin:0 0 6px;font-size:21px;display:flex;align-items:center;gap:6px}
+  .pop h2 button{margin-left:auto;background:#eef2f0;border:none;border-radius:50%;width:38px;height:38px;font-size:18px;flex:none}
+  .list{overflow:auto;font-size:15px}
+  .item{display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px dashed var(--line)}
+  .item:last-child{border:none}
+  .item[data-goto],.item[data-town]{cursor:pointer}
+  .av{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:800;font-size:13px;flex:none;border:2px solid #fff;box-shadow:0 0 0 1.5px rgba(0,0,0,.15)}
+  .item .r{margin-left:auto;font-weight:700;white-space:nowrap;text-align:right}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;overflow:auto}
+  .grid h3{grid-column:1/-1;margin:6px 0 0;font-size:14px;color:var(--muted)}
+  .opt{border:1.5px solid var(--line);background:#fff;border-radius:14px;padding:6px 4px;display:flex;flex-direction:column;align-items:center;line-height:1.1;min-height:74px}
+  .opt span{font-size:24px} .opt b{font-size:13.5px} .opt small{font-size:12px;color:var(--muted)}
+  .opt:disabled{opacity:.4}
+  .note{font-size:13px;color:var(--muted);margin:6px 2px 0}
+  #login{position:fixed;inset:0;background:rgba(223,234,242,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:30;padding:20px}
+  #login .card{padding:22px 18px;width:100%;max-width:360px}
+  #login h1{margin:0;text-align:center;font-size:34px;color:var(--green-d)}
+  #login p{text-align:center;margin:2px 0 14px;color:var(--muted)}
+  #login input{width:100%;height:50px;border-radius:14px;border:1.5px solid var(--line);padding:0 14px;font-family:inherit;font-size:18px;margin-bottom:10px;background:#fff;user-select:text;-webkit-user-select:text}
+  #login .btn{width:100%;margin-top:6px}
+  .err{color:var(--bad);font-weight:700;text-align:center;min-height:22px;margin-top:6px}
+  #toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 100px);transform:translateX(-50%) translateY(-16px);opacity:0;pointer-events:none;
+    background:var(--ink);color:#fff;padding:9px 16px;border-radius:14px;font-weight:700;z-index:40;transition:.25s;max-width:90vw;text-align:center}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  #toast.bad{background:var(--bad)} #toast.good{background:var(--green)}
+  #loading{position:fixed;inset:0;display:grid;place-items:center;font-size:20px;color:var(--muted);z-index:1}
+  .hidden{display:none!important}
+  @media (max-width:380px){ .wallet b{font-size:18px} .city b{font-size:15px} .nav button{font-size:12px} }
+</style>
+</head>
+<body>
+<div id="loading">…</div>
+<div id="scene"></div>
+
+<div class="hud">
+  <div class="leftcol">
+    <div class="card wallet"><span class="ic">👛</span><div><b id="money">—</b><small id="title"></small></div></div>
+    <div class="card clock" id="clock">📅 —</div>
+  </div>
+  <div class="card city"><b id="place">🇺🇸 Boston, MA</b><small><span class="dot" id="syncDot"></span><span id="online"></span></small></div>
+</div>
+<div class="side">
+  <button class="card rb" id="mapBtn" aria-label="Towns">🗺️</button>
+  <button class="card rb" id="homeBtn" aria-label="Home">🎯</button>
+  <button class="card rb" id="langBtn" aria-label="Language" style="font-size:13px;font-weight:800"></button>
+  <button class="card rb" id="menuBtn" aria-label="Menu">⋯</button>
+</div>
+<div id="mockbar" class="mockbar hidden" data-t="mock"></div>
+<div class="card hint" id="hint" data-t="hint"></div>
+<button class="collect hidden" id="collectBtn"><span>💰</span><b id="collectAmt">+$0K</b><small id="collectSub"></small></button>
+
+<div class="sheet" id="sheet">
+  <div class="card">
+    <div class="row"><div class="info"><b id="selTitle"></b><small id="selSub"></small></div></div>
+    <div class="acts" id="acts">
+      <button class="btn buy" id="buyBtn"></button>
+      <button class="btn rot" id="buildBtn"></button>
+      <button class="btn up" id="upBtn"></button>
+    </div>
+    <div class="nav">
+      <button data-pop="rank"><span>📊</span><i data-t="rank"></i></button>
+      <button data-pop="log"><span>🧾</span><i data-t="log"></i></button>
+      <button data-pop="mine"><span>🏘️</span><i data-t="mine"></i></button>
+      <button id="meBtn"><span>👤</span><i id="meName"></i></button>
+    </div>
+  </div>
+</div>
+
+<div id="login">
+  <div class="card">
+    <h1>Boston Land Rush</h1>
+    <p data-t="tagline"></p>
+    <input id="uName" data-tp="name" maxlength="16" autocomplete="username">
+    <input id="uPass" data-tp="pass" type="password" autocomplete="current-password">
+    <button class="btn buy" id="loginBtn" data-t="login"></button>
+    <button class="btn rot" id="regBtn" data-t="register"></button>
+    <button class="btn rot" id="langBtn2" style="margin-top:10px;min-height:40px;font-size:14px"></button>
+    <div class="err" id="loginErr"></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+/*__SHARED__*/
+
+/* ====== CẤU HÌNH ====== */
+// Link Web app của Apps Script. Để trống = chế độ thử (offline, lưu trong máy).
+const API_URL = '/*__API_URL__*/';
+const START_MONEY = 1500, POLL_MS = 8000;
+const M = ECON.M;
+
+/* ====== NGÔN NGỮ / LANGUAGE ====== */
+const I18N = {
+  vi: {
+    tagline: 'Mua nhà, mua đất, mở tiệm khắp Greater Boston. Ai nhanh tay thì được.', loading: 'Đang dựng thành phố…',
+    mock: 'Chế độ thử · chưa nối Google Sheet',
+    hint: 'Kéo để lướt · Chụm để phóng to · Hai ngón xoay · Chạm vào nhà hoặc lô đất',
+    pickTitle: 'Chạm vào nhà, lô trống hoặc địa danh', pickSub: 'Mọi công trình đều mua được — kể cả địa danh',
+    buy: 'Mua', buying: 'Đang xử lý…', build: 'Xây / Đổi', upgrade: 'Nâng cấp', maxed: 'Cấp tối đa',
+    rank: 'Xếp hạng', log: 'Giao dịch', mine: 'Tài sản', profile: 'Hồ sơ',
+    name: 'Tên người chơi', pass: 'Mật khẩu (ít nhất 4 ký tự)', login: 'Đăng nhập', register: 'Tạo tài khoản mới',
+    needBoth: 'Nhập tên và mật khẩu', noServer: 'Không kết nối được máy chủ',
+    players: '{n} người chơi', offline: 'Mất kết nối', connecting: 'Đang kết nối…',
+    t0: 'Người mới', t1: 'Nhà đầu tư', t2: 'Ông trùm địa ốc', t3: 'Đại gia Boston', perDay: '{money}/ngày',
+    pop: '👥 {n}K dân', growth: '+{n}% dân',
+    empty: 'Lô đất trống', npcOf: '{icon} {model} · cấp {lv}', owner: 'Chủ: {owner}', unowned: 'Chưa có chủ',
+    priceIs: 'Giá {price}', incomeMine: 'Thu nhập {money}/ngày', incomeHidden: 'Thu nhập: tự khám phá sau khi mua',
+    lvl: 'cấp {lv}', emptyMine: 'Đất trống — bấm Xây để mở nhà hoặc kinh doanh',
+    bought: 'Đã mua {name} · {price}', builtT: 'Đã xây {model} · {price}', upT: 'Đã nâng lên cấp {lv} · {price}',
+    lost: 'Mất kết nối, thử lại nhé', cantBuy: 'Không mua được',
+    welcomeNew: 'Chào {name}! Bạn có {money} để đầu tư', welcomeBack: 'Chào mừng trở lại, {name}',
+    popRank: '📊 Xếp hạng tài sản', popLog: '🧾 Giao dịch gần đây', popMine: '🏘️ Tài sản của tôi', popTowns: '🗺️ Thị trấn quanh Boston', popBuild: '🏗️ Chọn mẫu xây',
+    residential: 'Nhà ở cho thuê', business: 'Kinh doanh', buildNote: 'Xây mới thay công trình cũ (tiền đang chờ được thu trước). Thu nhập tùy loại hình, vị trí và mật độ dân — hãy thử nghiệm!',
+    you: '(bạn)', rankSub: '{n} lô · tiền mặt {money} · {inc}/ngày', noPlayers: 'Chưa có người chơi', noMine: 'Bạn chưa có tài sản nào', noDeals: 'Chưa có giao dịch',
+    settings: 'Tuỳ chọn', soundOn: '🔇 Bật âm thanh', soundOff: '🔊 Tắt âm thanh', logout: 'Đăng xuất', lang: '🌐 English',
+    collect: 'Thu tiền', collected: 'Đã thu {money}!', nothing: 'Chưa có tiền để thu', full: 'Kho đầy — thu ngay!',
+    sunny: '☀️ Nắng', cloudy: '⛅ Nhiều mây', rain: '🌧️ Mưa', snow: '❄️ Tuyết',
+    howto: '❓ Cách chơi',
+    howtoBody: '<p>🗺️ Bản đồ Greater Boston khoảng 35 dặm quanh trung tâm. <b>Nhà có sẵn, lô trống và địa danh đều mua được.</b></p><p>🏗️ Trên lô của mình, bấm <b>Xây / Đổi</b> để chọn mẫu nhà cho thuê hoặc loại hình kinh doanh, bấm <b>Nâng cấp</b> để lên tới cấp 5.</p><p>💡 Thu nhập tùy <b>loại hình + vị trí</b>: mỗi thị trấn có đặc điểm riêng (giàu, sinh viên, du lịch, văn phòng, cộng đồng Việt, gần biển…). Mở cùng loại tiệm sát nhau trong một thị trấn thì phải chia khách. Hãy tự khám phá!</p><p>👥 Xây và nâng cấp nhà ở làm <b>dân số thị trấn tăng</b> → đất lên giá, tiệm buôn bán đông hơn.</p><p>⏱️ Thời gian do <b>máy chủ</b> quyết định: 1 giờ thật = 1 ngày game. Tiền cộng dồn tối đa 12 ngày — nhớ bấm <b>💰 Thu tiền</b>.</p>',
+    shops: ['Cà Phê', 'Phở', 'Tiệm Bánh', 'Tạp Hóa', 'Tiệm Nail', 'Gym', 'Hải Sản', 'Khách Sạn', 'Văn Phòng'],
+    models: { empty: 'Đất trống', single: 'Nhà đơn lập', triple: 'Triple-decker', brownstone: 'Brownstone', condo: 'Chung cư cao tầng', cafe: 'Quán cà phê', pho: 'Quán phở', bakery: 'Tiệm bánh', grocery: 'Tạp hóa', nail: 'Tiệm nail', gym: 'Phòng gym', seafood: 'Nhà hàng hải sản', hotel: 'Khách sạn', office: 'Tòa văn phòng', landmark: 'Địa danh' },
+    err: { NAME_LEN: 'Tên phải dài 2–16 ký tự', PASS_LEN: 'Mật khẩu ít nhất 4 ký tự', NAME_TAKEN: 'Tên này đã có người dùng',
+      NO_USER: 'Không tìm thấy tài khoản', BAD_PASS: 'Sai mật khẩu', AUTH: 'Phiên đăng nhập hết hạn, hãy đăng nhập lại',
+      TAKEN: 'Đã có chủ — {owner} mua trước rồi', MONEY: 'Không đủ tiền (cần {price})', NO_PARCEL: 'Lô không tồn tại',
+      NOT_OWNER: 'Không phải tài sản của bạn', LANDMARK: 'Địa danh không xây lại được, chỉ nâng cấp', BAD_MODEL: 'Mẫu không hợp lệ',
+      SAME_MODEL: 'Đang là mẫu này rồi', EMPTY: 'Lô trống — hãy xây trước', MAX_LEVEL: 'Đã đạt cấp tối đa', BAD_CMD: 'Lệnh không hợp lệ', SERVER: 'Lỗi máy chủ, thử lại sau' }
+  },
+  en: {
+    tagline: 'Buy homes, land and shops across Greater Boston. First come, first served.', loading: 'Building the city…',
+    mock: 'Test mode · not connected to Google Sheet',
+    hint: 'Drag to pan · Pinch to zoom · Two-finger rotate · Tap a building or lot',
+    pickTitle: 'Tap a building, empty lot or landmark', pickSub: 'Everything is for sale — even landmarks',
+    buy: 'Buy', buying: 'Working…', build: 'Build / Change', upgrade: 'Upgrade', maxed: 'Max level',
+    rank: 'Ranking', log: 'Deals', mine: 'Assets', profile: 'Profile',
+    name: 'Player name', pass: 'Password (4+ characters)', login: 'Log in', register: 'Create account',
+    needBoth: 'Enter a name and password', noServer: "Can't reach the server",
+    players: '{n} players', offline: 'Offline', connecting: 'Connecting…',
+    t0: 'Newcomer', t1: 'Investor', t2: 'Property mogul', t3: 'Boston tycoon', perDay: '{money}/day',
+    pop: '👥 {n}K residents', growth: '+{n}% residents',
+    empty: 'Empty lot', npcOf: '{icon} {model} · level {lv}', owner: 'Owner: {owner}', unowned: 'For sale',
+    priceIs: 'Price {price}', incomeMine: 'Income {money}/day', incomeHidden: 'Income: find out after you buy',
+    lvl: 'level {lv}', emptyMine: 'Empty land — tap Build to open a home or business',
+    bought: 'Bought {name} · {price}', builtT: 'Built {model} · {price}', upT: 'Upgraded to level {lv} · {price}',
+    lost: 'Connection lost, try again', cantBuy: "Can't buy this",
+    welcomeNew: 'Welcome {name}! You have {money} to invest', welcomeBack: 'Welcome back, {name}',
+    popRank: '📊 Net worth ranking', popLog: '🧾 Recent deals', popMine: '🏘️ My assets', popTowns: '🗺️ Towns around Boston', popBuild: '🏗️ Choose what to build',
+    residential: 'Rental homes', business: 'Businesses', buildNote: 'Building replaces the current structure (pending income is collected first). Income depends on business type, location and density — experiment!',
+    you: '(you)', rankSub: '{n} lots · cash {money} · {inc}/day', noPlayers: 'No players yet', noMine: "You don't own anything yet", noDeals: 'No deals yet',
+    settings: 'Settings', soundOn: '🔇 Sound on', soundOff: '🔊 Sound off', logout: 'Log out', lang: '🌐 Tiếng Việt',
+    collect: 'Collect', collected: 'Collected {money}!', nothing: 'Nothing to collect yet', full: 'Storage full — collect now!',
+    sunny: '☀️ Sunny', cloudy: '⛅ Cloudy', rain: '🌧️ Rain', snow: '❄️ Snow',
+    howto: '❓ How to play',
+    howtoBody: '<p>🗺️ Greater Boston, about 35 miles around downtown. <b>Existing homes, empty lots and landmarks are all for sale.</b></p><p>🏗️ On your own lot, tap <b>Build / Change</b> to pick a rental home or a business, and <b>Upgrade</b> up to level 5.</p><p>💡 Income depends on <b>business type + location</b>: every town has its own character (wealth, students, tourists, offices, Vietnamese community, waterfront…). Same-type shops in one town split the customers. Discover what works!</p><p>👥 Building and upgrading homes <b>grows a town\'s population</b> → land gets pricier and shops get busier.</p><p>⏱️ Time is set by the <b>server</b>: 1 real hour = 1 game day. Income piles up for up to 12 days — tap <b>💰 Collect</b>.</p>',
+    shops: ['Coffee', 'Phở', 'Bakery', 'Grocery', 'Nail Salon', 'Gym', 'Seafood', 'Hotel', 'Offices'],
+    models: { empty: 'Empty lot', single: 'Single-family', triple: 'Triple-decker', brownstone: 'Brownstone', condo: 'Condo tower', cafe: 'Coffee shop', pho: 'Phở restaurant', bakery: 'Bakery', grocery: 'Grocery', nail: 'Nail salon', gym: 'Gym', seafood: 'Seafood restaurant', hotel: 'Hotel', office: 'Office tower', landmark: 'Landmark' },
+    err: { NAME_LEN: 'Name must be 2–16 characters', PASS_LEN: 'Password needs 4+ characters', NAME_TAKEN: 'That name is taken',
+      NO_USER: 'Account not found', BAD_PASS: 'Wrong password', AUTH: 'Session expired, please log in again',
+      TAKEN: 'Already owned — {owner} got there first', MONEY: 'Not enough cash (need {price})', NO_PARCEL: 'Lot not found',
+      NOT_OWNER: "That's not yours", LANDMARK: "Landmarks can't be rebuilt, only upgraded", BAD_MODEL: 'Invalid model',
+      SAME_MODEL: 'Already that model', EMPTY: 'Empty lot — build first', MAX_LEVEL: 'Already at max level', BAD_CMD: 'Invalid command', SERVER: 'Server error, try again later' }
+  }
+};
+let LANG = (() => { try { const v = localStorage.getItem('ldv_lang'); if (v) return JSON.parse(v); } catch(_){} return /^vi/i.test(navigator.language || '') ? 'vi' : 'en'; })();
+function t(key, vars){
+  let v = I18N[LANG][key]; if (v == null) v = I18N.vi[key];
+  if (typeof v !== 'string') return v;
+  return vars ? v.replace(/\{(\w+)\}/g, (_, k) => vars[k] != null ? vars[k] : '') : v;
+}
+const modelName = m => t('models')[m] || m;
+const townName = code => { const tw = WORLD.townByCode[code]; return tw ? tw[LANG] : code; };
+const parcelName = p => p.lm ? p.lm[LANG] : townName(p.town) + ' #' + p.id.split('-')[0].replace(/^[A-Z]+/, '') + '-' + (p.cell + 1);
+function errText(r){
+  const e = r && r.code && I18N[LANG].err[r.code];
+  return e ? e.replace('{owner}', r.owner || '').replace('{price}', r.price != null ? fmt(r.price) : '') : (r && r.error) || t('cantBuy');
+}
+function applyStaticText(){
+  document.documentElement.lang = LANG;
+  document.querySelectorAll('[data-t]').forEach(el => el.textContent = t(el.dataset.t));
+  document.querySelectorAll('[data-tp]').forEach(el => el.placeholder = t(el.dataset.tp));
+}
+function setLang(l){
+  LANG = l; try { localStorage.setItem('ldv_lang', JSON.stringify(l)); } catch(_){}
+  applyStaticText(); if (cityReady) City.relabel(); renderUI();
+}
+
+/* ====== tiện ích ====== */
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); }catch(_){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(_){} },
+  del(k){ try{ localStorage.removeItem(k); }catch(_){} }
+};
+const fmt = n => { n = Number(n); return n >= 1000 ? '$' + (n / 1000).toLocaleString('en-US', { maximumFractionDigits: 2 }) + 'M' : '$' + (Number.isInteger(n) ? n : n.toFixed(n < 100 ? 1 : 0)) + 'K'; };
+const esc = s => String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+const hashN = s => WORLD.hash(s);
+
+/* ====== máy chủ thử (cùng luật với Code.gs, dùng chung WORLD/ECON) ====== */
+const MOCK_COLORS = ['#e94f37', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ec4899', '#14b8a6', '#f97316', '#0ea5e9', '#84cc16', '#d946ef', '#64748b'];
+function mockApi(p){
+  return new Promise(res => setTimeout(() => {
+    const db = store.get('ldv_mock6', { users: [], parcels: [], gameStart: Date.now() });
+    const save = () => store.set('ldv_mock6', db);
+    const state = () => ({ ok: true, v: 6, users: db.users.map(u => ({ username: u.username, money: u.money, color: u.color })), parcels: db.parcels.map(o => Object.assign({}, o)), serverTime: Date.now(), gameStart: db.gameStart, speed: ECON.SPEED });
+    const fail = (code, extra) => res(Object.assign(state(), { ok: false, code }, extra || {}));
+    const name = String(p.username || '').trim().replace(/\s+/g, ' ');
+    if (p.action === 'state') return res(state());
+    if (p.action === 'register'){
+      if (name.length < 2 || name.length > 16) return res({ ok:false, code:'NAME_LEN' });
+      if (String(p.password||'').length < 4) return res({ ok:false, code:'PASS_LEN' });
+      if (db.users.some(u => u.username.toLowerCase() === name.toLowerCase())) return res({ ok:false, code:'NAME_TAKEN' });
+      const u = { username: name, pass: p.password, token: Math.random().toString(36).slice(2), money: START_MONEY, color: MOCK_COLORS[db.users.length % MOCK_COLORS.length] };
+      db.users.push(u); save(); return res(Object.assign(state(), { me: { username: u.username, token: u.token } }));
+    }
+    if (p.action === 'login'){
+      const u = db.users.find(u => u.username.toLowerCase() === name.toLowerCase());
+      if (!u) return res({ ok:false, code:'NO_USER' });
+      if (u.pass !== p.password) return res({ ok:false, code:'BAD_PASS' });
+      return res(Object.assign(state(), { me: { username: u.username, token: u.token } }));
+    }
+    const u = db.users.find(u => u.username === p.username && u.token === p.token);
+    if (!u) return res({ ok:false, code:'AUTH' });
+    const now = Date.now(), snap = ECON.snapshot(db.parcels);
+    if (p.action === 'buy'){
+      const parcel = WORLD.byId[p.id]; if (!parcel) return fail('NO_PARCEL');
+      const have = db.parcels.find(o => o.id === parcel.id); if (have) return fail('TAKEN', { owner: have.owner });
+      const price = ECON.price(parcel, snap); if (u.money < price) return fail('MONEY', { price });
+      db.parcels.push({ id: parcel.id, owner: u.username, model: parcel.lm ? 'landmark' : parcel.npc ? parcel.npc.model : 'empty', level: parcel.lm ? 1 : parcel.npc ? parcel.npc.level : 0, paid: price, boughtAt: now, collectedAt: now });
+      u.money -= price; save(); return res(Object.assign(state(), { bought: { id: parcel.id, price } }));
+    }
+    if (p.action === 'build' || p.action === 'upgrade'){
+      const o = db.parcels.find(x => x.id === p.id); if (!o || o.owner !== u.username) return fail('NOT_OWNER');
+      let cost;
+      if (p.action === 'build') {
+        if (o.model === 'landmark') return fail('LANDMARK');
+        if (ECON.BUILDABLE.indexOf(p.model) < 0) return fail('BAD_MODEL');
+        if (o.model === p.model) return fail('SAME_MODEL');
+        cost = M[p.model].cost;
+      } else {
+        if (o.model === 'empty') return fail('EMPTY');
+        if (o.level >= ECON.MAX_LEVEL) return fail('MAX_LEVEL');
+        cost = ECON.upgradeCost(o.model, o.level, WORLD.byId[o.id]);
+      }
+      const earned = Math.floor(ECON.pending(o, snap, now));
+      if (u.money + earned < cost) return fail('MONEY', { price: cost });
+      if (p.action === 'build') { o.model = p.model; o.level = 1; } else o.level++;
+      o.paid += cost; o.collectedAt = now; u.money += earned - cost; save();
+      return res(Object.assign(state(), p.action === 'build' ? { built: { id: o.id, model: o.model, cost, earned } } : { upgraded: { id: o.id, level: o.level, cost, earned } }));
+    }
+    if (p.action === 'collect'){
+      let total = 0;
+      db.parcels.forEach(o => { if (o.owner !== u.username) return; total += ECON.pending(o, snap, now); o.collectedAt = now; });
+      const amount = Math.floor(total); u.money += amount; save();
+      return res(Object.assign(state(), { collected: amount }));
+    }
+    res({ ok:false, code:'BAD_CMD' });
+  }, 150 + Math.random() * 200));
+}
+async function api(p){
+  if (!API_URL) return mockApi(p);
+  // text/plain để Apps Script không bị chặn CORS (không có preflight)
+  const r = await fetch(API_URL, { method: 'POST', body: JSON.stringify(p), redirect: 'follow' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+/* ====== trạng thái ====== */
+let cityReady = false;
+const S = {
+  me: store.get('ldv_me', null), users: [], parcels: [], owned: {}, snap: ECON.snapshot([]), sig: {},
+  sel: null, lastSync: 0, busy: false, online: true, offset: 0, gameStart: 0
+};
+const serverNow = () => Date.now() + S.offset;
+const meUser = () => S.me && S.users.find(u => u.username === S.me.username);
+const colorOf = name => (S.users.find(u => u.username === name) || {}).color || '#94a3b8';
+const myParcels = () => S.me ? S.parcels.filter(o => o.owner === S.me.username) : [];
+const incomeOf = o => ECON.income(o, S.snap);
+const pendingOf = o => ECON.pending(o, S.snap, serverNow());
+
+function applyState(r){
+  if (r && Array.isArray(r.users)) {
+    if (r.serverTime) { S.offset = r.serverTime - Date.now(); S.gameStart = r.gameStart || S.gameStart; }
+    const parcels = (r.parcels || []).filter(o => WORLD.byId[o.id]);
+    const fresh = [];
+    parcels.forEach(o => { const sig = o.owner + o.model + o.level; if (S.sig[o.id] && S.sig[o.id] !== sig || (!S.sig[o.id] && S.lastSync)) fresh.push(o.id); });
+    S.sig = {}; parcels.forEach(o => S.sig[o.id] = o.owner + o.model + o.level);
+    S.users = r.users; S.parcels = parcels; S.owned = {}; parcels.forEach(o => S.owned[o.id] = o);
+    S.snap = ECON.snapshot(parcels); S.lastSync = Date.now(); S.online = true;
+    if (cityReady) City.sync(fresh);
+  }
+  renderUI();
+  if (openPop && openPop !== 'static') fillPop(openPop);
+}
+async function refresh(){
+  if (S.busy) return;
+  try { applyState(await api({ action: 'state' })); }
+  catch (e) { S.online = false; renderUI(); }
+}
+
+/* ====== âm thanh ====== */
+let actx = null, muted = store.get('ldv_muted', false);
+function beep(freqs, dur = .09, type = 'triangle', vol = .06){
+  if (muted) return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    freqs.forEach((f, i) => {
+      const o = actx.createOscillator(), g = actx.createGain(), tt = actx.currentTime + i * dur;
+      o.type = type; o.frequency.value = f; g.gain.setValueAtTime(vol, tt); g.gain.exponentialRampToValueAtTime(.0001, tt + dur);
+      o.connect(g).connect(actx.destination); o.start(tt); o.stop(tt + dur);
+    });
+  } catch(_){}
+}
+const sfx = { coin: () => beep([988, 1319, 1568, 1976], .06, 'square', .05), tap: () => beep([700], .05), ok: () => beep([523, 659, 784, 1046], .08), bad: () => beep([220, 160], .14, 'sawtooth', .05) };
+
+/* =====================================================================
+   THÀNH PHỐ 3D — Greater Boston
+   ===================================================================== */
+const City = (() => {
+  const host = $('scene');
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  host.appendChild(renderer.domElement);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color('#dfeaf2');
+  scene.fog = new THREE.Fog('#dfeaf2', 60, 160);
+  const camera = new THREE.PerspectiveCamera(34, 1, 0.5, 600);
+  scene.add(new THREE.HemisphereLight('#ffffff', '#9fb38c', 0.62));
+  const sun = new THREE.DirectionalLight('#fff3df', 0.62);
+  sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+  Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 90 });
+  sun.shadow.bias = -0.0008; sun.shadow.normalBias = 0.02;
+  scene.add(sun); scene.add(sun.target);
+
+  const mats = {};
+  const Mt = (color, opts = {}) => { const k = color + JSON.stringify(opts); return mats[k] || (mats[k] = new THREE.MeshStandardMaterial(Object.assign({ color, roughness: .92, metalness: 0 }, opts))); };
+  const box = (w, h, d, mat, x, y, z, parent, shadow = true) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y + h / 2, z); m.castShadow = shadow; m.receiveShadow = true; parent.add(m); return m;
+  };
+  function windowTex(base, lit){
+    const c = document.createElement('canvas'); c.width = 64; c.height = 64; const g = c.getContext('2d');
+    g.fillStyle = base; g.fillRect(0, 0, 64, 64);
+    g.fillStyle = lit; for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) g.fillRect(6 + i * 32, 8 + j * 32, 20, 18);
+    const tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping; return tx;
+  }
+  const winCache = {};
+  function towerMats(color, w, h, d){
+    const key = color + w.toFixed(2) + h.toFixed(2) + d.toFixed(2);
+    if (winCache[key]) return winCache[key];
+    const base = windowTex(color, 'rgba(255,255,255,.55)');
+    const sx = base.clone(); sx.needsUpdate = true; sx.repeat.set(Math.max(1, Math.round(d * 2)), Math.max(1, Math.round(h * 2.2)));
+    const sz = base.clone(); sz.needsUpdate = true; sz.repeat.set(Math.max(1, Math.round(w * 2)), Math.max(1, Math.round(h * 2.2)));
+    const mx = new THREE.MeshStandardMaterial({ map: sx, roughness: .85 }), mz = new THREE.MeshStandardMaterial({ map: sz, roughness: .85 });
+    return (winCache[key] = [mx, mx, Mt(color), Mt(color), mz, mz]);
+  }
+  /* nhãn chữ (vẽ lại khi đổi ngôn ngữ) */
+  const labels = [];
+  function drawLabel(sp){
+    const { text, bg, fg, scale } = sp.userData.lbl, str = typeof text === 'function' ? text() : text;
+    const c = document.createElement('canvas'), g = c.getContext('2d'); g.font = '700 40px "Baloo 2", sans-serif';
+    const w = Math.ceil(g.measureText(str).width) + 36; c.width = w; c.height = 64;
+    g.font = '700 40px "Baloo 2", sans-serif';
+    g.fillStyle = bg; g.beginPath(); g.roundRect ? g.roundRect(2, 4, w - 4, 56, 18) : g.rect(2, 4, w - 4, 56); g.fill();
+    g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(str, w / 2, 34);
+    if (sp.material.map) sp.material.map.dispose();
+    sp.material.map = new THREE.CanvasTexture(c); sp.material.needsUpdate = true;
+    sp.scale.set(w / 64 * .45 * scale, .45 * scale, 1);
+  }
+  function labelSprite(text, bg, fg = '#fff', scale = 1, keep = true){
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ depthTest: true }));
+    sp.userData.lbl = { text, bg, fg, scale }; drawLabel(sp);
+    if (keep) labels.push(sp);
+    return sp;
+  }
+
+  /* ---------- mặt đất, biển, sông, đường cao tốc ---------- */
+  const world = new THREE.Group(); scene.add(world);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(900, 900), Mt('#cfe3b0'));
+  ground.rotation.x = -Math.PI / 2; ground.position.y = -.03; ground.receiveShadow = true; world.add(ground);
+  // biển: đa giác từ bờ biển kéo ra phía đông
+  const cw = WORLD.coastW;
+  const sea = new THREE.Shape();
+  sea.moveTo(cw[0][0], -cw[0][1] - 300); sea.lineTo(cw[0][0], -cw[0][1]);
+  cw.forEach(p => sea.lineTo(p[0], -p[1]));
+  const last = cw[cw.length - 1]; sea.lineTo(last[0], -last[1] + 300); sea.lineTo(500, -last[1] + 300); sea.lineTo(500, -cw[0][1] - 300);
+  const seaMesh = new THREE.Mesh(new THREE.ShapeGeometry(sea), Mt('#9fd3e6', { roughness: .35 }));
+  seaMesh.rotation.x = -Math.PI / 2; seaMesh.position.y = .01; world.add(seaMesh);
+  const beach = new THREE.Line(new THREE.BufferGeometry().setFromPoints(cw.map(p => new THREE.Vector3(p[0], .03, p[1]))), new THREE.LineBasicMaterial({ color: '#efe3b8' }));
+  world.add(beach);
+  // dải phẳng nối các điểm (sông, đường)
+  function strip(points, width, color, y){
+    const pos = [], idx = [];
+    points.forEach((p, i) => {
+      const a = points[Math.max(0, i - 1)], b = points[Math.min(points.length - 1, i + 1)];
+      let dx = b[0] - a[0], dz = b[1] - a[1]; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+      pos.push(p[0] - dz * width / 2, y, p[1] + dx * width / 2, p[0] + dz * width / 2, y, p[1] - dx * width / 2);
+      if (i) { const k = i * 2; idx.push(k - 2, k - 1, k, k - 1, k + 1, k); }
+    });
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+    const m = new THREE.Mesh(g, Mt(color, { side: THREE.DoubleSide })); m.receiveShadow = true; world.add(m); return m;
+  }
+  const W = (lat, lon) => WORLD.world(lat, lon);
+  // sông Charles
+  strip([W(42.37, -71.26), W(42.365, -71.21), W(42.36, -71.17), W(42.365, -71.13), W(42.355, -71.10), W(42.355, -71.075), W(42.367, -71.06), W(42.37, -71.045)], 1.1, '#9fd3e6', .015);
+  // đường cao tốc
+  const tc = c => { const tw = WORLD.townByCode[c]; return [tw.x, tw.z]; };
+  const HW = [['DT', 'SO', 'ME', 'WO', 'AN', 'LA'], ['DT', 'BB', 'AL', 'NW', 'WE', 'NA', 'FR', 'MB'], ['DO', 'QU', 'BT', 'BK'], ['BT', 'WY', 'SW', 'HI', 'DX'],
+    ['QU', 'DE', 'ND', 'WA', 'LX', 'BU', 'WO', 'LY', 'SA', 'GL'], ['DT', 'CH', 'MA', 'RV', 'LY'], ['BU', 'LO', 'AN'], ['FR', 'NO', 'DE'], ['DT', 'SE', 'DO'], ['CA', 'WA'], ['LO', 'MB']];
+  const highways = [];
+  HW.forEach(path => {
+    const pts = path.map(tc);
+    strip(pts, .9, '#a3a9b1', .02);
+    highways.push(pts);
+  });
+
+  /* ---------- khu phố + lô đất (instancing) ---------- */
+  const dummy = new THREE.Object3D(), col = new THREE.Color();
+  // nền đường quanh khu phố + vỉa hè
+  const blk = WORLD.blocks;
+  const roadI = new THREE.InstancedMesh(new THREE.BoxGeometry(WORLD.P + .02, .02, WORLD.P + .02), Mt('#a3a9b1'), blk.length);
+  const walkI = new THREE.InstancedMesh(new THREE.BoxGeometry(3.3, .07, 3.3), Mt('#e6e2d8'), blk.length);
+  blk.forEach((b, i) => {
+    dummy.position.set(b.x0 + 1.5, .01, b.z0 + 1.5); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix();
+    roadI.setMatrixAt(i, dummy.matrix);
+    dummy.position.y = .04; dummy.updateMatrix(); walkI.setMatrixAt(i, dummy.matrix);
+  });
+  roadI.receiveShadow = walkI.receiveShadow = true; world.add(roadI); world.add(walkI);
+  // vạch đường giữa các khu
+  const dashGeo = new THREE.BoxGeometry(.5, .01, .07), dashes = new THREE.InstancedMesh(dashGeo, Mt('#f6d860'), blk.length * 16);
+  let dn = 0;
+  blk.forEach(b => {
+    for (let k = 0; k < 4; k++) {
+      dummy.rotation.set(0, 0, 0); dummy.position.set(b.x0 - .7 + k * 1.1 + .55, .03, b.z0 - .7); dummy.updateMatrix(); dashes.setMatrixAt(dn++, dummy.matrix);
+      dummy.rotation.set(0, Math.PI / 2, 0); dummy.position.set(b.x0 - .7, .03, b.z0 - .7 + k * 1.1 + .55); dummy.updateMatrix(); dashes.setMatrixAt(dn++, dummy.matrix);
+    }
+  });
+  dashes.count = dn; world.add(dashes);
+
+  const lots = WORLD.parcels.filter(p => !p.lm);
+  const lotIdx = {}; lots.forEach((p, i) => lotIdx[p.id] = i);
+  const tileI = new THREE.InstancedMesh(new THREE.BoxGeometry(.92, .05, .92), new THREE.MeshStandardMaterial({ roughness: .95 }), lots.length);
+  const TILE_EMPTY = '#d8e7b8', TILE_BUILT = '#ece8de';
+  lots.forEach((p, i) => {
+    dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1); dummy.position.set(p.x, .1, p.z); dummy.updateMatrix(); tileI.setMatrixAt(i, dummy.matrix);
+    tileI.setColorAt(i, col.set(p.npc ? TILE_BUILT : TILE_EMPTY));
+  });
+  tileI.receiveShadow = true; world.add(tileI);
+
+  /* nhà có sẵn (NPC): thân + mái + mái hiên, mỗi loại một InstancedMesh */
+  const BRICK = ['#a64b35', '#b5603f', '#8f3f2e', '#c27552', '#9b5a44'], SIDING = ['#ece6d6', '#c9d8e4', '#dfe8d0', '#f1dfc6', '#e6d3d3', '#cdbcea'];
+  const TOWER = ['#c9d3dd', '#b4c3d3', '#d9d0c1', '#e6dccb', '#9fb4c9', '#cbc3b6'], BIZC = ['#f8fafc', '#fde68a', '#fecaca', '#bfdbfe', '#d9f99d'];
+  const AWN = { cafe: '#7c4a2b', pho: '#dc2626', bakery: '#f59e0b', grocery: '#16a34a', nail: '#ec4899', gym: '#111827', seafood: '#0ea5e9', hotel: '#7c3aed', office: '#334155' };
+  function npcShape(model, level, p){
+    const r = WORLD.rnd(p.id + 'shape');
+    const lv = level || 1;
+    switch (model) {
+      case 'single': return { w: .62, d: .62, h: .42 + .1 * lv, color: SIDING[Math.floor(r() * SIDING.length)], roof: '#6b7280', roofH: .32 };
+      case 'triple': return { w: .66, d: .8, h: .75 + .12 * lv, color: SIDING[Math.floor(r() * SIDING.length)], roof: '#5f6b78', roofH: .22 };
+      case 'brownstone': return { w: .82, d: .82, h: .8 + .2 * lv, color: BRICK[Math.floor(r() * BRICK.length)], cap: '#5b3a2e' };
+      case 'condo': return { w: .78, d: .78, h: 1.8 + .55 * lv, color: TOWER[Math.floor(r() * TOWER.length)], cap: '#94a3b8' };
+      case 'office': return { w: .8, d: .8, h: 2.2 + .6 * lv, color: '#8fb3d6', cap: '#475569' };
+      case 'hotel': return { w: .8, d: .8, h: 1.8 + .45 * lv, color: '#e9dcc9', cap: '#7c3aed' };
+      default: return { w: .82, d: .82, h: .45 + .08 * lv, color: BIZC[Math.floor(r() * BIZC.length)], awning: AWN[model] || '#64748b' };
+    }
+  }
+  const npcLots = lots.filter(p => p.npc);
+  const bodyI = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ roughness: .9 }), npcLots.length);
+  const roofGeo = new THREE.ConeGeometry(.5, 1, 4); roofGeo.rotateY(Math.PI / 4);
+  const roofI = new THREE.InstancedMesh(roofGeo, new THREE.MeshStandardMaterial({ roughness: .9, flatShading: true }), npcLots.length);
+  const capI = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ roughness: .9 }), npcLots.length);
+  const npcSlot = {}; // parcelId -> instance index
+  const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  npcLots.forEach((p, i) => {
+    npcSlot[p.id] = i;
+    const s = npcShape(p.npc.model, p.npc.level, p);
+    dummy.rotation.set(0, 0, 0);
+    dummy.position.set(p.x, .12 + s.h / 2, p.z); dummy.scale.set(s.w, s.h, s.d); dummy.updateMatrix();
+    bodyI.setMatrixAt(i, dummy.matrix); bodyI.setColorAt(i, col.set(s.color));
+    if (s.roof) { dummy.position.set(p.x, .12 + s.h + s.roofH / 2, p.z); dummy.scale.set(s.w * 1.45, s.roofH, s.d * 1.45); dummy.updateMatrix(); roofI.setMatrixAt(i, dummy.matrix); roofI.setColorAt(i, col.set(s.roof)); }
+    else roofI.setMatrixAt(i, zero), roofI.setColorAt(i, col.set('#000'));
+    if (s.cap) { dummy.position.set(p.x, .12 + s.h + .04, p.z); dummy.scale.set(s.w + .05, .08, s.d + .05); dummy.updateMatrix(); capI.setMatrixAt(i, dummy.matrix); capI.setColorAt(i, col.set(s.cap)); }
+    else if (s.awning) { dummy.position.set(p.x, .12 + s.h * .55, p.z); dummy.scale.set(s.w + .1, .05, s.d + .1); dummy.updateMatrix(); capI.setMatrixAt(i, dummy.matrix); capI.setColorAt(i, col.set(s.awning)); }
+    else capI.setMatrixAt(i, zero), capI.setColorAt(i, col.set('#000'));
+  });
+  [bodyI, roofI, capI].forEach(m => { m.castShadow = m.receiveShadow = true; world.add(m); });
+  const npcHidden = {};
+  function setNpcVisible(id, vis){
+    const i = npcSlot[id]; if (i == null || !!npcHidden[id] === !vis) return;
+    npcHidden[id] = !vis;
+    if (!vis) { [bodyI, roofI, capI].forEach(m => { m.getMatrixAt(i, dummy.matrix); m.userData.saved = m.userData.saved || {}; m.userData.saved[i] = dummy.matrix.clone(); m.setMatrixAt(i, zero); m.instanceMatrix.needsUpdate = true; }); }
+    else { [bodyI, roofI, capI].forEach(m => { const sv = m.userData.saved && m.userData.saved[i]; if (sv) { m.setMatrixAt(i, sv); m.instanceMatrix.needsUpdate = true; } }); }
+  }
+
+  /* cây: rải ở nông thôn + lô trống */
+  const treePts = [];
+  const tr = WORLD.rnd('trees');
+  for (let k = 0; k < 1400 && treePts.length < 900; k++) {
+    const x = (tr() - .5) * 190, z = (tr() - .5) * 190;
+    if (WORLD.inWater(x, z)) continue;
+    const i = Math.floor(x / WORLD.P), j = Math.floor(z / WORLD.P);
+    if (blk.some(b => b.i === i && b.j === j)) continue;
+    treePts.push([x, z, .8 + tr() * .8]);
+  }
+  lots.forEach(p => { if (!p.npc && p.seed > .45) treePts.push([p.x + (p.seed - .7) * .4, p.z + .15, .9]); });
+  const trunkI = new THREE.InstancedMesh(new THREE.CylinderGeometry(.04, .05, .25, 5), Mt('#8b6b4a'), treePts.length);
+  const leafI = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(.2, 0), new THREE.MeshStandardMaterial({ roughness: .9, flatShading: true }), treePts.length);
+  const LEAF = ['#5fb85a', '#4fa64f', '#76c46a', '#3f8f48'];
+  treePts.forEach(([x, z, s], i) => {
+    dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(s); dummy.position.set(x, .125 * s, z); dummy.updateMatrix(); trunkI.setMatrixAt(i, dummy.matrix);
+    dummy.position.set(x, .38 * s, z); dummy.updateMatrix(); leafI.setMatrixAt(i, dummy.matrix); leafI.setColorAt(i, col.set(LEAF[i % 4]));
+  });
+  trunkI.castShadow = leafI.castShadow = true; world.add(trunkI); world.add(leafI);
+  const treeAt = (x, z, s, parent) => {
+    const t1 = new THREE.Mesh(new THREE.CylinderGeometry(.04, .05, .25, 5), Mt('#8b6b4a')); t1.position.set(x, .125 * s, z); t1.scale.setScalar(s); t1.castShadow = true; parent.add(t1);
+    const l1 = new THREE.Mesh(new THREE.IcosahedronGeometry(.2, 0), Mt('#5fb85a', { flatShading: true })); l1.position.set(x, .38 * s, z); l1.scale.setScalar(s); l1.castShadow = true; parent.add(l1);
+  };
+
+  /* ---------- địa danh ---------- */
+  function buildLandmark(p){
+    const g = new THREE.Group(), x = p.x, z = p.z, st = p.lm.style;
+    box(3.1, .02, 3.1, Mt(st === 'park' || st === 'campus' ? '#a9d48a' : '#ece8de'), x, .08, z, g, false);
+    const gold = Mt('#e8b923', { metalness: .45, roughness: .35 });
+    let top = 1.5;
+    if (st === 'park') {
+      const pond = new THREE.Mesh(new THREE.CylinderGeometry(.75, .75, .03, 24), Mt('#8fcbe0', { roughness: .3 })); pond.position.set(x + .4, .12, z + .2); pond.scale.z = .7; g.add(pond);
+      [[-1.1, -1.1], [1.1, -1.2], [-1.2, 1.1], [-.3, -1.2], [1.2, 1.2], [-1.2, 0], [.1, 1.2]].forEach(([a, b]) => treeAt(x + a, z + b, 1.2, g)); top = 1.2;
+    } else if (st === 'dome') {
+      box(2.4, 1, 1.5, Mt('#b5603f'), x, .1, z, g); box(1.2, .9, .35, Mt('#f4f1ea'), x, .1, z + .9, g);
+      for (let i = 0; i < 5; i++) box(.08, .8, .08, Mt('#ffffff'), x - .48 + i * .24, .1, z + 1.12, g);
+      box(.9, .25, .9, Mt('#f4f1ea'), x, 1.1, z, g);
+      const d = new THREE.Mesh(new THREE.SphereGeometry(.45, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), gold); d.position.set(x, 1.35, z); d.castShadow = true; g.add(d); top = 2.2;
+    } else if (st === 'hall') {
+      box(2.6, .8, 1.2, Mt('#b5603f'), x, .1, z, g);
+      const rf = new THREE.Mesh(new THREE.CylinderGeometry(.62, .62, 2.6, 3, 1), Mt('#5f6b78', { flatShading: true })); rf.rotation.z = Math.PI / 2; rf.position.set(x, 1.12, z); rf.scale.set(1, 1, .9); rf.castShadow = true; g.add(rf);
+      box(.3, .35, .3, Mt('#ffffff'), x, 1.35, z, g);
+      const c = new THREE.Mesh(new THREE.SphereGeometry(.16, 12, 8), gold); c.position.set(x, 1.8, z); g.add(c); top = 2.1;
+    } else if (st === 'church') {
+      box(1.2, .9, 2, Mt('#a64b35'), x, .1, z + .2, g); box(.6, 1.8, .6, Mt('#a64b35'), x, .1, z - 1, g);
+      const sp = new THREE.Mesh(new THREE.ConeGeometry(.3, 1.4, 8), Mt('#f4f1ea')); sp.position.set(x, 2.6, z - 1); sp.castShadow = true; g.add(sp); top = 3.4;
+    } else if (st === 'pru') {
+      box(2.8, .5, 2.8, Mt('#cfd5db'), x, .1, z, g);
+      const tw = new THREE.Mesh(new THREE.BoxGeometry(1.3, 7.5, 1.3), towerMats('#b9c2cc', 1.3, 7.5, 1.3)); tw.position.set(x, .6 + 3.75, z); tw.castShadow = tw.receiveShadow = true; g.add(tw);
+      box(1, .5, 1, Mt('#9aa5b1'), x, 8.1, z, g);
+      const an = new THREE.Mesh(new THREE.CylinderGeometry(.03, .05, 1.4, 6), Mt('#e5e7eb')); an.position.set(x, 9.3, z); g.add(an); top = 10;
+    } else if (st === 'glass') {
+      box(.9, 7, 2, Mt('#7fa6c9', { roughness: .2, metalness: .3 }), x, .1, z, g); top = 7.4;
+    } else if (st === 'campus') {
+      [[-.9, -.9], [.9, -.9], [-.9, .9]].forEach(([a, b]) => { box(1, .8, .7, Mt('#b5603f'), x + a, .1, z + b, g); box(1.05, .06, .75, Mt('#5b3a2e'), x + a, .9, z + b, g); });
+      treeAt(x + .9, z + .9, 1.2, g); treeAt(x, z, 1.1, g); top = 1.6;
+    } else if (st === 'mitdome') {
+      box(2.8, .9, 1.4, Mt('#e7e2d6'), x, .1, z, g);
+      for (let i = 0; i < 6; i++) box(.1, .9, .1, Mt('#ffffff'), x - .75 + i * .3, .1, z + .75, g);
+      const d = new THREE.Mesh(new THREE.SphereGeometry(.7, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), Mt('#d6d3cb')); d.position.set(x, 1, z); d.castShadow = true; g.add(d); top = 2;
+    } else if (st === 'airport') {
+      box(3, .02, .5, Mt('#4b5563'), x, .1, z + 1, g); box(3, .02, .5, Mt('#4b5563'), x, .1, z - 1.1, g);
+      box(1.8, .5, .8, Mt('#e5e7eb'), x, .1, z, g);
+      box(.3, 1.6, .3, Mt('#cbd5e1'), x + 1.1, .1, z - .2, g); box(.5, .3, .5, Mt('#7dd3fc'), x + 1.1, 1.7, z - .2, g);
+      const pl = new THREE.Group(); box(.9, .12, .14, Mt('#ffffff'), 0, 0, 0, pl); box(.14, .04, .9, Mt('#ffffff'), 0, .02, 0, pl); pl.position.set(x - .6, .2, z + 1); g.add(pl); top = 2.2;
+    } else if (st === 'witch') {
+      box(1.4, .9, 1.2, Mt('#3f3a36'), x, .1, z, g);
+      const rf = new THREE.Mesh(new THREE.ConeGeometry(1, .9, 4), Mt('#292524', { flatShading: true })); rf.rotation.y = Math.PI / 4; rf.position.set(x, 1.45, z); rf.castShadow = true; g.add(rf); top = 2.2;
+    } else if (st === 'mills') {
+      box(2.8, 1.2, 1, Mt('#9b4a32'), x, .1, z - .6, g); box(.35, 2.2, .35, Mt('#8f3f2e'), x + 1.1, .1, z + .6, g);
+      for (let i = 0; i < 7; i++) box(.18, .3, .02, Mt('#f4efe6'), x - 1.2 + i * .4, .6, z - .09, g); top = 2.6;
+    } else if (st === 'statue') {
+      box(1, .5, 1, Mt('#9ca3af'), x, .1, z, g); box(.25, .9, .25, Mt('#4b5563'), x, .6, z, g);
+      const hd = new THREE.Mesh(new THREE.SphereGeometry(.15, 10, 8), Mt('#4b5563')); hd.position.set(x, 1.65, z); g.add(hd); top = 2;
+    } else if (st === 'cafe') {
+      box(2, .9, 1.4, Mt('#fff8e7'), x, .1, z, g); box(2.1, .08, 1.5, Mt('#0f9d76'), x, .55, z, g);
+      box(2.1, .3, 1.5, Mt('#7c4a2b'), x, 1, z, g);
+      const cup = new THREE.Mesh(new THREE.CylinderGeometry(.28, .2, .4, 16), Mt('#ffffff')); cup.position.set(x, 1.55, z); g.add(cup); top = 2;
+    }
+    const lb = labelSprite(() => '⭐ ' + p.lm[LANG], 'rgba(255,255,255,.94)', '#1f2a37', .9); lb.position.set(x, top + .6, z); g.add(lb);
+    g.traverse(o => { if (o.isMesh) o.userData.pid = p.id; });
+    g.userData = { top: top + 1 };
+    return g;
+  }
+  const lmGroups = {};
+  WORLD.parcels.filter(p => p.lm).forEach(p => { const g = buildLandmark(p); lmGroups[p.id] = g; world.add(g); });
+
+  /* tên thị trấn */
+  const townLabels = [];
+  const HOODS = ['DT', 'BH', 'NE', 'BB', 'SP', 'SE', 'FW', 'CH', 'EB', 'DO', 'AL'];   // khu phố của Boston: chỉ hiện khi nhìn gần
+  WORLD.towns.forEach(tw => {
+    const sp = labelSprite(() => townName(tw.code), 'rgba(15,157,118,.9)', '#fff', 1.6);
+    sp.position.set(tw.x, 5.5, tw.z - 1.6); sp.material.depthTest = false; sp.renderOrder = 5; sp.userData.hood = HOODS.includes(tw.code); world.add(sp); townLabels.push(sp);
+  });
+  const bosLabel = labelSprite('⭐ Boston', 'rgba(220,38,38,.92)', '#fff', 2);
+  bosLabel.position.set(0, 6, 0); bosLabel.material.depthTest = false; bosLabel.renderOrder = 6; world.add(bosLabel); townLabels.push(bosLabel); bosLabel.userData.city = true;
+
+  /* ---------- công trình của người chơi ---------- */
+  const SHOPS = { cafe: 0, pho: 1, bakery: 2, grocery: 3, nail: 4, gym: 5, seafood: 6, hotel: 7, office: 8 };
+  function avatarSprite(name, color, mine){
+    const c = document.createElement('canvas'); c.width = 160; c.height = 190; const g = c.getContext('2d');
+    g.fillStyle = 'rgba(0,0,0,.18)'; g.beginPath(); g.arc(80, 70, 56, 0, 7); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(80, 64, 56, 0, 7); g.fill();
+    g.fillStyle = color; g.beginPath(); g.arc(80, 64, 47, 0, 7); g.fill();
+    g.fillStyle = '#fff'; g.font = '800 52px "Baloo 2", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(name.trim().charAt(0).toUpperCase(), 80, 68);
+    if (mine) { g.font = '700 30px sans-serif'; g.fillText('★', 128, 22); }
+    g.font = '700 30px "Baloo 2", sans-serif';
+    const label = name.length > 9 ? name.slice(0, 8) + '…' : name, w = Math.min(156, g.measureText(label).width + 22);
+    g.fillStyle = 'rgba(255,255,255,.95)'; g.beginPath(); g.roundRect ? g.roundRect(80 - w / 2, 132, w, 44, 14) : g.rect(80 - w / 2, 132, w, 44); g.fill();
+    g.fillStyle = '#1f2a37'; g.fillText(label, 80, 156);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+    sp.renderOrder = 10; sp.scale.set(.85, 1, 1); return sp;
+  }
+  let coinT = null;
+  function coinTex(){
+    if (coinT) return coinT;
+    const c = document.createElement('canvas'); c.width = c.height = 96; const g = c.getContext('2d');
+    g.fillStyle = '#c98a0b'; g.beginPath(); g.arc(48, 52, 40, 0, 7); g.fill();
+    g.fillStyle = '#fcd34d'; g.beginPath(); g.arc(48, 46, 40, 0, 7); g.fill();
+    g.strokeStyle = '#f59e0b'; g.lineWidth = 5; g.beginPath(); g.arc(48, 46, 30, 0, 7); g.stroke();
+    g.fillStyle = '#92400e'; g.font = '900 44px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('$', 48, 48);
+    return (coinT = new THREE.CanvasTexture(c));
+  }
+  function buildOwned(o){
+    const p = WORLD.byId[o.id], g = new THREE.Group(), x = p.x, z = p.z, own = colorOf(o.owner), lv = o.level || 1;
+    let top = .6;
+    const m = o.model;
+    if (m === 'empty') {
+      const sign = box(.06, .4, .06, Mt('#7c4a2b'), x + .25, .12, z + .25, g); box(.3, .2, .03, Mt(own), x + .25, .4, z + .27, g); top = .6;
+    } else if (m === 'single' || m === 'triple') {
+      const s = npcShape(m, lv, p);
+      box(s.w, s.h, s.d, Mt(s.color), x, .12, z, g);
+      const rf = new THREE.Mesh(new THREE.ConeGeometry(.5, 1, 4), Mt(own, { flatShading: true })); rf.rotation.y = Math.PI / 4;
+      rf.scale.set(s.w * 1.45, s.roofH + .08, s.d * 1.45); rf.position.set(x, .12 + s.h + (s.roofH + .08) / 2, z); rf.castShadow = true; g.add(rf);
+      box(.16, .26, .02, Mt('#7c4a2b'), x, .12, z + s.d / 2 + .01, g, false);
+      top = .12 + s.h + s.roofH + .1;
+    } else if (m === 'brownstone') {
+      const s = npcShape(m, lv, p);
+      box(s.w, s.h, s.d, Mt(s.color), x, .12, z, g); box(s.w + .06, .08, s.d + .06, Mt(own), x, .12 + s.h, z, g);
+      for (let f = 0; f < 1 + lv; f++) box(.5, .1, .02, Mt('#f4efe6'), x, .25 + f * (s.h - .2) / (1 + lv), z + s.d / 2 + .01, g, false);
+      top = .12 + s.h + .1;
+    } else if (m === 'condo' || m === 'office' || m === 'hotel') {
+      const s = npcShape(m, lv, p), base = m === 'office' ? '#8fb3d6' : m === 'hotel' ? '#e9dcc9' : TOWER[hashN(o.id) % TOWER.length];
+      const tw = new THREE.Mesh(new THREE.BoxGeometry(s.w, s.h, s.d), towerMats(base, s.w, s.h, s.d)); tw.position.set(x, .12 + s.h / 2, z); tw.castShadow = tw.receiveShadow = true; g.add(tw);
+      box(s.w * .7, .3, s.d * .7, Mt(base), x, .12 + s.h, z, g); box(s.w * .72, .1, s.d * .72, Mt(own), x, .12 + s.h + .3, z, g);
+      top = .12 + s.h + .45;
+    } else if (m === 'landmark') {
+      top = lmGroups[o.id].userData.top;
+    } else {
+      const s = npcShape(m, lv, p);
+      box(s.w, s.h, s.d, Mt(BIZC[hashN(o.id) % BIZC.length]), x, .12, z, g);
+      box(s.w + .02, s.h * .45, s.d + .02, Mt('#bfe3f3', { roughness: .3 }), x, .14, z, g);
+      box(s.w + .14, .05, s.d + .14, Mt(AWN[m] || own), x, .12 + s.h * .55, z, g);
+      box(s.w * .7, .05, s.d * .7, Mt(own), x, .12 + s.h, z, g);
+      const lb = labelSprite(() => (M[m] ? M[m].icon + ' ' : '') + t('shops')[SHOPS[m]], AWN[m] || own, '#fff', .6); lb.position.set(x, .12 + s.h + .5, z); g.add(lb);
+      top = .12 + s.h + .7;
+    }
+    const av = avatarSprite(o.owner, own, S.me && o.owner === S.me.username);
+    av.position.set(x, top + .7, z); g.add(av);
+    if (S.me && o.owner === S.me.username) {
+      const coin = new THREE.Sprite(new THREE.SpriteMaterial({ map: coinTex(), depthTest: false }));
+      coin.renderOrder = 11; coin.scale.set(.55, .55, 1); coin.position.set(x + .5, top + 1.1, z); coin.visible = false;
+      coin.userData.baseY = top + 1.1; g.add(coin); g.userData.coin = coin;
+    }
+    g.traverse(q => { if (q.isMesh) q.userData.pid = o.id; });
+    return g;
+  }
+  const ownedObjs = new Map();   // id -> {group, sig, born}
+  function sync(fresh = []){
+    const meName = S.me && S.me.username;
+    for (const [id, ob] of ownedObjs) if (!S.owned[id]) { world.remove(ob.group); ownedObjs.delete(id); setNpcVisible(id, true); }
+    S.parcels.forEach(o => {
+      const sig = o.owner + o.model + o.level + colorOf(o.owner) + meName + LANG;
+      const old = ownedObjs.get(o.id);
+      if (old && old.sig === sig) return;
+      if (old) world.remove(old.group);
+      const gr = buildOwned(o); world.add(gr);
+      ownedObjs.set(o.id, { group: gr, sig, born: fresh.includes(o.id) ? performance.now() : 0 });
+      if (o.model !== 'landmark') setNpcVisible(o.id, false);
+    });
+    // màu ô theo chủ
+    lots.forEach((p, i) => {
+      const o = S.owned[p.id];
+      tileI.setColorAt(i, o ? col.set(colorOf(o.owner)).lerp(new THREE.Color('#ffffff'), .65) : col.set(p.npc ? TILE_BUILT : TILE_EMPTY));
+    });
+    tileI.instanceColor.needsUpdate = true;
+    syncCoins();
+  }
+  function syncCoins(){
+    for (const [id, ob] of ownedObjs) { const c = ob.group.userData.coin; if (c) c.visible = !!S.owned[id] && pendingOf(S.owned[id]) >= 3; }
+  }
+
+  /* ---------- ô đang chọn ---------- */
+  const selMat = new THREE.MeshBasicMaterial({ color: '#22c55e', transparent: true, opacity: .45, depthWrite: false });
+  const selMesh = new THREE.Mesh(new THREE.BoxGeometry(1, .04, 1), selMat); selMesh.visible = false; world.add(selMesh);
+  function syncSelection(){
+    const p = S.sel && WORLD.byId[S.sel];
+    if (!p) { selMesh.visible = false; return; }
+    selMesh.visible = true; selMesh.position.set(p.x, .15, p.z); const w = p.lm ? 3.2 : .98; selMesh.scale.set(w, 1, w);
+    const o = S.owned[p.id];
+    selMat.color.set(!o ? '#22c55e' : (S.me && o.owner === S.me.username) ? '#3b82f6' : '#ef4444');
+  }
+
+  /* ---------- xe chạy trên cao tốc ---------- */
+  const cars = [];
+  const carCols = ['#ef4444', '#f8fafc', '#3b82f6', '#facc15', '#111827', '#10b981'];
+  highways.forEach((pts, hi) => {
+    for (let k = 0; k < 3; k++) {
+      const g = new THREE.Group(); box(.5, .16, .25, Mt(carCols[(hi + k) % carCols.length]), 0, .03, 0, g); box(.28, .12, .22, Mt('#dbeafe'), -.03, .19, 0, g);
+      world.add(g); cars.push({ g, pts, u: (k / 3 + hi * .13) % 1, v: .006 + (k % 2) * .003, dir: k % 2 ? 1 : -1 });
+    }
+  });
+  const segLen = pts => { let L = 0; for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return L; };
+  cars.forEach(c => c.L = segLen(c.pts));
+  function carPos(c){
+    let d = c.u * c.L;
+    for (let i = 1; i < c.pts.length; i++) {
+      const a = c.pts[i - 1], b = c.pts[i], l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (d <= l) { const k = d / l, nx = (b[0] - a[0]) / l, nz = (b[1] - a[1]) / l, off = c.dir * .2;
+        return [a[0] + (b[0] - a[0]) * k - nz * off, a[1] + (b[1] - a[1]) * k + nx * off, Math.atan2(-(b[1] - a[1]), b[0] - a[0]) + (c.dir < 0 ? Math.PI : 0)]; }
+      d -= l;
+    }
+    const e = c.pts[c.pts.length - 1]; return [e[0], e[1], 0];
+  }
+
+  /* ---------- camera + điều khiển ---------- */
+  const cam = { tx: 0, tz: 1, dist: 34, yaw: Math.PI / 4, pitch: .92 };
+  function updateCamera(){
+    cam.dist = Math.max(6, Math.min(230, cam.dist));
+    const lim = 95; cam.tx = Math.max(-lim, Math.min(lim, cam.tx)); cam.tz = Math.max(-lim, Math.min(lim, cam.tz));
+    cam.pitch = .78 + Math.min(.4, cam.dist / 400);
+    scene.fog.near = cam.dist * 1.2; scene.fog.far = cam.dist * 3;
+    const h = Math.sin(cam.pitch) * cam.dist, r = Math.cos(cam.pitch) * cam.dist;
+    camera.position.set(cam.tx + Math.sin(cam.yaw) * r, h, cam.tz + Math.cos(cam.yaw) * r);
+    camera.lookAt(cam.tx, 0, cam.tz);
+    sun.position.set(cam.tx - 14, 26, cam.tz + 10); sun.target.position.set(cam.tx, 0, cam.tz);
+    sun.castShadow = cam.dist < 70;
+    const ls = Math.max(1, Math.pow(cam.dist / 40, .7)), far = cam.dist > 55;
+    townLabels.forEach(sp => {
+      sp.visible = sp.userData.city ? far : !(far && sp.userData.hood);
+      sp.scale.set(sp.userData.lbl0w * ls, sp.userData.lbl0h * ls, 1); sp.position.y = 5.5 * Math.max(1, ls * .8);
+    });
+  }
+  townLabels.forEach(sp => { sp.userData.lbl0w = sp.scale.x; sp.userData.lbl0h = sp.scale.y; });
+  function resize(){
+    const w = innerWidth, h = innerHeight;
+    renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+    document.documentElement.style.setProperty('--sheetH', $('sheet').offsetHeight + 'px');
+    camera.setViewOffset(w, h, 0, ($('sheet').offsetHeight - 70) * .45, w, h);
+  }
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -.1);
+  function setRay(px, py){ ndc.set(px / innerWidth * 2 - 1, -(py / innerHeight) * 2 + 1); ray.setFromCamera(ndc, camera); }
+  function groundAt(px, py){ setRay(px, py); const p = new THREE.Vector3(); return ray.ray.intersectPlane(plane, p) ? p : null; }
+  function pickParcel(px, py){
+    setRay(px, py);
+    const targets = [...[...ownedObjs.values()].map(o => o.group), ...Object.values(lmGroups), bodyI, roofI, tileI];
+    const hits = ray.intersectObjects(targets, true);
+    for (const h of hits) {
+      if (h.object.userData.pid) return h.object.userData.pid;
+      if (h.object === bodyI || h.object === roofI) { const p = npcLots[h.instanceId]; if (p && !npcHidden[p.id]) return p.id; }
+      if (h.object === tileI) return lots[h.instanceId].id;
+    }
+    return null;
+  }
+  const el = renderer.domElement, ptrs = new Map(); let drag = null, multi = null;
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch(_){}
+    ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+    if (ptrs.size === 1) drag = { start: [e.clientX, e.clientY], last: [e.clientX, e.clientY], moved: false, rotate: e.button === 2 || e.shiftKey };
+    if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; multi = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), ang: Math.atan2(b[1] - a[1], b[0] - a[0]) }; drag = null; }
+    hideHint();
+  });
+  el.addEventListener('pointermove', e => {
+    if (!ptrs.has(e.pointerId)) return;
+    ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+    if (multi && ptrs.size >= 2) {
+      const [a, b] = [...ptrs.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]), ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+      cam.dist *= multi.d / d; cam.yaw -= ang - multi.ang; multi.d = d; multi.ang = ang; updateCamera();
+    } else if (drag) {
+      const p = [e.clientX, e.clientY];
+      if (!drag.moved && Math.hypot(p[0] - drag.start[0], p[1] - drag.start[1]) > 8) drag.moved = true;
+      if (drag.moved) {
+        if (drag.rotate) cam.yaw -= (p[0] - drag.last[0]) * .008;
+        else { const a = groundAt(drag.last[0], drag.last[1]), b = groundAt(p[0], p[1]); if (a && b) { cam.tx += a.x - b.x; cam.tz += a.z - b.z; } }
+        updateCamera();
+      }
+      drag.last = p;
+    }
+  });
+  const endPtr = e => {
+    if (!ptrs.has(e.pointerId)) return;
+    ptrs.delete(e.pointerId);
+    if (drag && !drag.moved && ptrs.size === 0 && e.type === 'pointerup') onTap(pickParcel(drag.start[0], drag.start[1]));
+    if (ptrs.size < 2) multi = null;
+    if (ptrs.size === 0) drag = null;
+  };
+  el.addEventListener('pointerup', endPtr); el.addEventListener('pointercancel', endPtr);
+  el.addEventListener('contextmenu', e => e.preventDefault());
+  el.addEventListener('wheel', e => { e.preventDefault(); cam.dist *= e.deltaY > 0 ? 1.1 : 1 / 1.1; updateCamera(); hideHint(); }, { passive: false });
+
+  let fly = null;
+  function flyTo(x, z, dist){ fly = { x0: cam.tx, z0: cam.tz, d0: cam.dist, x, z, d: dist || 14, t0: performance.now() }; }
+
+  /* ---------- vòng lặp ---------- */
+  const easeBack = k => { const c = 1.7; k = Math.min(1, k) - 1; return 1 + (c + 1) * k * k * k + c * k * k; };
+  let lastT = performance.now();
+  function loop(now){
+    const dt = Math.min(.05, (now - lastT) / 1000); lastT = now;
+    if (fly) {
+      const k = Math.min(1, (now - fly.t0) / 900), e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+      cam.tx = fly.x0 + (fly.x - fly.x0) * e; cam.tz = fly.z0 + (fly.z - fly.z0) * e; cam.dist = fly.d0 + (fly.d - fly.d0) * e; updateCamera();
+      if (k >= 1) fly = null;
+    }
+    cars.forEach(c => { c.u = (c.u + c.v * dt * c.dir + 1) % 1; const [x, z, r] = carPos(c); c.g.position.set(x, 0, z); c.g.rotation.y = r; });
+    for (const ob of ownedObjs.values()) {
+      if (ob.born) { const k = (now - ob.born) / 700; if (k >= 1) { ob.born = 0; ob.group.scale.set(1, 1, 1); } else ob.group.scale.set(1, Math.max(.02, easeBack(k)), 1); }
+      const c = ob.group.userData.coin; if (c && c.visible) c.position.y = c.userData.baseY + Math.abs(Math.sin(now / 300 + ob.group.id)) * .25;
+    }
+    selMat.opacity = .35 + Math.sin(now / 300) * .12;
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
+  }
+
+  resize(); updateCamera();
+  window.addEventListener('resize', () => { resize(); updateCamera(); });
+  if (window.ResizeObserver) new ResizeObserver(() => resize()).observe($('sheet'));
+  requestAnimationFrame(loop);
+  $('loading').classList.add('hidden');
+  cityReady = true;
+  return {
+    sync, syncSelection, syncCoins, resize, flyTo, cam, updateCamera,
+    relabel(){ labels.forEach(drawLabel); townLabels.forEach(sp => { sp.userData.lbl0w = sp.scale.x; sp.userData.lbl0h = sp.scale.y; }); updateCamera(); for (const ob of ownedObjs.values()) ob.sig = ''; sync(); },
+    rebuild(){ for (const ob of ownedObjs.values()) ob.sig = ''; sync(); },
+    screenOf(x, z){ const v = new THREE.Vector3(x, .15, z).project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight]; },
+    nearestTown(){ let best = null, bd = 1e9; WORLD.towns.forEach(tw => { const d = Math.hypot(tw.x - cam.tx, tw.z - cam.tz); if (d < bd) { bd = d; best = tw; } }); return { town: best, d: bd }; }
+  };
+})();
+
+/* ====== chọn lô ====== */
+function onTap(id){
+  if (!id) { if (S.sel) { S.sel = null; City.syncSelection(); renderUI(); } return; }
+  S.sel = id; sfx.tap(); City.syncSelection(); renderUI();
+}
+
+/* ====== hành động (máy chủ tính giá, thời gian, thu nhập) ====== */
+async function act(payload, onOk){
+  if (!S.me || S.busy) return;
+  S.busy = true; renderUI();
+  try {
+    const r = await api(Object.assign({ username: S.me.username, token: S.me.token }, payload));
+    S.busy = false;
+    if (r.ok) { applyState(r); onOk(r); }
+    else { if (r.code === 'AUTH') logout(); applyState(r); toast(errText(r), 'bad'); sfx.bad(); }
+  } catch (e) { S.busy = false; toast(t('lost'), 'bad'); sfx.bad(); }
+  renderUI();
+}
+function buy(){
+  const p = S.sel && WORLD.byId[S.sel]; if (!p || S.owned[p.id]) return;
+  act({ action: 'buy', id: p.id }, r => { toast(t('bought', { name: parcelName(p), price: fmt(r.bought.price) }), 'good'); sfx.ok(); });
+}
+function build(model){
+  const p = S.sel && WORLD.byId[S.sel]; if (!p) return;
+  closePop();
+  act({ action: 'build', id: p.id, model }, r => { toast(t('builtT', { model: modelName(model), price: fmt(r.built.cost) }), 'good'); sfx.ok(); });
+}
+function upgrade(){
+  const p = S.sel && WORLD.byId[S.sel]; if (!p) return;
+  act({ action: 'upgrade', id: p.id }, r => { toast(t('upT', { lv: r.upgraded.level, price: fmt(r.upgraded.cost) }), 'good'); sfx.ok(); });
+}
+function collect(){
+  act({ action: 'collect' }, r => { if (r.collected > 0) { toast(t('collected', { money: fmt(r.collected) }), 'good'); sfx.coin(); } else toast(t('nothing')); });
+}
+
+/* ====== giao diện ====== */
+function renderUI(){
+  const me = meUser(), mine = myParcels();
+  $('money').textContent = me ? fmt(me.money) : '—';
+  const inc = mine.reduce((a, o) => a + incomeOf(o), 0);
+  const rankT = mine.length >= 8 ? 't3' : mine.length >= 3 ? 't2' : mine.length ? 't1' : 't0';
+  $('title').textContent = t(rankT) + (mine.length ? ' · 📈 ' + t('perDay', { money: fmt(inc) }) : '');
+  $('meName').textContent = S.me ? S.me.username : t('profile');
+  $('langBtn').textContent = LANG === 'vi' ? 'EN' : 'VI'; $('langBtn2').textContent = t('lang');
+  const ago = S.lastSync ? Math.round((Date.now() - S.lastSync) / 1000) : null;
+  $('online').textContent = !S.online ? t('offline') : ago == null ? t('connecting') : t('players', { n: S.users.length }) + (ago > 20 ? ' · ' + ago + 's' : '');
+  $('syncDot').classList.toggle('off', !S.online);
+  if (cityReady) {
+    const nt = City.nearestTown();
+    if (nt.town && nt.d < 14 && City.cam.dist < 90) {
+      const pop = S.snap.pop[nt.town.code], g = Math.round((pop / nt.town.a.pop - 1) * 100);
+      $('place').textContent = '📍 ' + townName(nt.town.code) + ' · ' + t('pop', { n: pop.toFixed(1) }) + (g > 0 ? ' ↑' : '');
+    } else $('place').textContent = '🇺🇸 Greater Boston';
+  }
+  // đồng hồ game (theo máy chủ)
+  if (S.gameStart) {
+    const gd = new Date(Date.UTC(2026, 0, 1) + (serverNow() - S.gameStart) * ECON.SPEED);
+    const dd = String(gd.getUTCDate()).padStart(2, '0'), mm = String(gd.getUTCMonth() + 1).padStart(2, '0');
+    const hh = String(gd.getUTCHours()).padStart(2, '0'), mi = String(gd.getUTCMinutes()).padStart(2, '0');
+    const dayIdx = Math.floor((serverNow() - S.gameStart) / ECON.DAY_MS), winter = [11, 0, 1].includes(gd.getUTCMonth());
+    const wx = (winter ? ['sunny', 'cloudy', 'snow', 'snow'] : ['sunny', 'sunny', 'cloudy', 'rain'])[hashN('w' + dayIdx) % 4];
+    $('clock').textContent = `📅 ${LANG === 'vi' ? dd + '/' + mm : mm + '/' + dd}/${gd.getUTCFullYear()} · ${hh}:${mi} · ${t(wx)}`;
+  }
+  // thu tiền
+  const pend = mine.reduce((a, o) => a + pendingOf(o), 0);
+  const isFull = mine.length && mine.every(o => (serverNow() - o.collectedAt) / ECON.DAY_MS >= ECON.CAP_DAYS);
+  $('collectBtn').classList.toggle('hidden', !S.me || !mine.length);
+  if (S.me && mine.length) $('hint').classList.add('hidden');
+  $('collectAmt').textContent = '+' + fmt(Math.floor(pend * 10) / 10);
+  $('collectSub').textContent = isFull ? t('full') : t('collect');
+  $('collectBtn').disabled = pend < 1 || S.busy;
+  if (cityReady) City.syncCoins();
+  // lô đang chọn
+  const p = S.sel && WORLD.byId[S.sel], buyB = $('buyBtn'), buildB = $('buildBtn'), upB = $('upBtn');
+  if (!p) {
+    $('selTitle').textContent = t('pickTitle'); $('selSub').textContent = t('pickSub');
+    $('acts').classList.add('hidden');
+  } else {
+    $('acts').classList.remove('hidden');
+    const o = S.owned[p.id], mineSel = o && S.me && o.owner === S.me.username;
+    const model = o ? o.model : p.lm ? 'landmark' : p.npc ? p.npc.model : 'empty', lv = o ? o.level : p.npc ? p.npc.level : 1;
+    const icon = p.lm ? '⭐' : (M[model] ? M[model].icon : '🟩');
+    $('selTitle').textContent = `${icon} ${parcelName(p)}`;
+    const parts = [model === 'empty' ? t('empty') : (p.lm ? modelName('landmark') : modelName(model)) + ' · ' + t('lvl', { lv })];
+    if (!o) parts.push(t('unowned'), t('priceIs', { price: fmt(ECON.price(p, S.snap)) }));
+    else if (mineSel) parts.push(model === 'empty' ? t('emptyMine') : t('incomeMine', { money: fmt(incomeOf(o)) }));
+    else parts.push(t('owner', { owner: o.owner }));
+    if (!mineSel && !o) parts.push(t('incomeHidden'));
+    $('selSub').textContent = parts.join(' · ');
+    buyB.classList.toggle('hidden', !!o); buildB.classList.toggle('hidden', !mineSel || model === 'landmark'); upB.classList.toggle('hidden', !mineSel || model === 'empty');
+    buyB.innerHTML = `${t(S.busy ? 'buying' : 'buy')}<small>${fmt(ECON.price(p, S.snap))}</small>`;
+    buyB.disabled = S.busy || !S.me;
+    buildB.innerHTML = `🏗️ ${t('build')}`; buildB.disabled = S.busy;
+    if (mineSel && model !== 'empty') {
+      const maxed = lv >= ECON.MAX_LEVEL;
+      upB.innerHTML = maxed ? t('maxed') : `⬆️ ${t('upgrade')} ${lv + 1}<small>${fmt(ECON.upgradeCost(model, lv, p))}</small>`;
+      upB.disabled = S.busy || maxed;
+    }
+    if (!o && !S.me) buyB.disabled = true;
+  }
+}
+
+let openPop = null;
+function fillPop(kind){
+  const pp = $('pop'); if (!pp) return;
+  const L = pp.querySelector('.list'); if (!L) return;
+  let html = '';
+  const av = name => `<span class="av" style="background:${colorOf(name)}">${esc(name.charAt(0).toUpperCase())}</span>`;
+  if (kind === 'rank') {
+    const rows = S.users.map(u => {
+      const ps = S.parcels.filter(o => o.owner === u.username);
+      return { u, n: ps.length, inc: ps.reduce((s, o) => s + incomeOf(o), 0), total: u.money + ps.reduce((s, o) => s + (o.paid || 0), 0) };
+    }).sort((a, b) => b.total - a.total);
+    html = rows.map((r, i) => `<div class="item"><b>${i + 1}</b>${av(r.u.username)}<span>${esc(r.u.username)}${S.me && r.u.username === S.me.username ? ' ' + t('you') : ''}<br><small style="color:var(--muted)">${t('rankSub', { n: r.n, money: fmt(r.u.money), inc: fmt(r.inc) })}</small></span><span class="r">${fmt(r.total)}</span></div>`).join('') || `<div class="item">${t('noPlayers')}</div>`;
+  } else if (kind === 'log' || kind === 'mine') {
+    const ps = S.parcels.filter(o => kind === 'log' || (S.me && o.owner === S.me.username)).sort((a, b) => b.boughtAt - a.boughtAt);
+    html = ps.map(o => {
+      const p = WORLD.byId[o.id], icon = p.lm ? '⭐' : (M[o.model] ? M[o.model].icon : '🟩');
+      const right = kind === 'mine' ? t('perDay', { money: fmt(incomeOf(o)) }) : fmt(o.paid);
+      const sub = (o.model === 'empty' ? t('empty') : modelName(o.model) + ' · ' + t('lvl', { lv: o.level })) + ' · ' + townName(p.town) + (kind === 'log' ? ' · ' + new Date(o.boughtAt).toLocaleString(LANG === 'vi' ? 'vi-VN' : 'en-US', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '');
+      return `<div class="item" data-goto="${o.id}">${av(o.owner)}<span>${icon} ${kind === 'log' ? esc(o.owner) + ' · ' : ''}<b>${esc(parcelName(p))}</b><br><small style="color:var(--muted)">${esc(sub)}</small></span><span class="r">${right}</span></div>`;
+    }).join('') || `<div class="item">${t(kind === 'mine' ? 'noMine' : 'noDeals')}</div>`;
+  } else if (kind === 'towns') {
+    const list = WORLD.towns.slice().sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z));
+    html = list.map(tw => {
+      const pop = S.snap.pop[tw.code], miles = Math.round(Math.hypot(tw.x, tw.z) ** (1 / .78) / 6.2 ** (1 / .78) * 10) / 10;
+      const n = S.parcels.filter(o => WORLD.byId[o.id].town === tw.code).length;
+      return `<div class="item" data-town="${tw.code}"><span>📍 <b>${esc(tw[LANG])}</b><br><small style="color:var(--muted)">${t('pop', { n: pop.toFixed(1) })} · ${miles} mi</small></span><span class="r">${n ? '🏘️ ' + n : ''}</span></div>`;
+    }).join('');
+  }
+  L.innerHTML = html;
+  L.querySelectorAll('[data-goto]').forEach(it => it.onclick = () => {
+    const p = WORLD.byId[it.dataset.goto]; if (!p) return;
+    closePop(); City.flyTo(p.x, p.z, 16); S.sel = p.id; City.syncSelection(); renderUI();
+  });
+  L.querySelectorAll('[data-town]').forEach(it => it.onclick = () => {
+    const tw = WORLD.townByCode[it.dataset.town]; closePop(); City.flyTo(tw.x, tw.z, 26);
+  });
+}
+const POP_TITLES = { rank: 'popRank', log: 'popLog', mine: 'popMine', towns: 'popTowns' };
+function makePop(title, body, kind){
+  closePop(); openPop = kind || 'static';
+  const d = document.createElement('div'); d.className = 'pop'; d.id = 'pop';
+  d.innerHTML = `<div class="card"><h2>${title}<button aria-label="Close">✕</button></h2>${body}</div>`;
+  d.addEventListener('click', e => { if (e.target === d) closePop(); });
+  document.body.appendChild(d); d.querySelector('h2 button').onclick = closePop;
+  return d;
+}
+function showPop(kind){ makePop(t(POP_TITLES[kind]), '<div class="list"></div>', kind); fillPop(kind); }
+function closePop(){ const pp = $('pop'); if (pp) pp.remove(); openPop = null; }
+function showBuild(){
+  const p = S.sel && WORLD.byId[S.sel], o = p && S.owned[p.id]; if (!o) return;
+  const me = meUser(), opt = m => `<button class="opt" data-m="${m}" ${o.model === m || (me && me.money + pendingOf(o) < M[m].cost) ? 'disabled' : ''}><span>${M[m].icon}</span><b>${esc(modelName(m))}</b><small>${fmt(M[m].cost)}</small></button>`;
+  const res = ECON.BUILDABLE.filter(m => M[m].type === 'res'), biz = ECON.BUILDABLE.filter(m => M[m].type === 'biz');
+  const d = makePop(t('popBuild'), `<div class="grid"><h3>🏠 ${t('residential')}</h3>${res.map(opt).join('')}<h3>🏪 ${t('business')}</h3>${biz.map(opt).join('')}</div><p class="note">${t('buildNote')}</p>`);
+  d.querySelectorAll('[data-m]').forEach(b => b.onclick = () => build(b.dataset.m));
+}
+document.querySelectorAll('[data-pop]').forEach(b => b.addEventListener('click', () => showPop(b.dataset.pop)));
+$('mapBtn').addEventListener('click', () => showPop('towns'));
+$('homeBtn').addEventListener('click', () => {
+  const mine = myParcels();
+  if (mine.length) { const p = WORLD.byId[mine[mine.length - 1].id]; City.flyTo(p.x, p.z, 16); } else City.flyTo(0, 1, 34);
+});
+
+let toastT;
+function toast(msg, kind){
+  const tt = $('toast'); tt.textContent = msg; tt.className = 'show ' + (kind || '');
+  clearTimeout(toastT); toastT = setTimeout(() => tt.className = '', 2800);
+}
+let hintGone = false;
+function hideHint(){ if (hintGone) return; hintGone = true; setTimeout(() => $('hint').style.opacity = 0, 1500); setTimeout(() => $('hint').classList.add('hidden'), 2000); }
+
+$('buyBtn').addEventListener('click', buy);
+$('buildBtn').addEventListener('click', showBuild);
+$('upBtn').addEventListener('click', upgrade);
+$('collectBtn').addEventListener('click', collect);
+function showHowto(){ makePop(t('howto'), `<div class="list" style="line-height:1.35">${t('howtoBody')}</div>`); }
+function showMenu(){
+  const d = makePop(`👤 ${S.me ? esc(S.me.username) : t('settings')}`, `
+    <button class="btn rot" id="mHow" style="margin-bottom:8px">${t('howto')}</button>
+    <button class="btn rot" id="mLang" style="margin-bottom:8px">${t('lang')}</button>
+    <button class="btn rot" id="mMute" style="margin-bottom:8px">${t(muted ? 'soundOn' : 'soundOff')}</button>
+    <button class="btn rot" id="mOut">${t('logout')}</button>`);
+  $('mMute').onclick = () => { muted = !muted; store.set('ldv_muted', muted); closePop(); };
+  $('mOut').onclick = () => { closePop(); logout(); };
+  $('mLang').onclick = () => { closePop(); setLang(LANG === 'vi' ? 'en' : 'vi'); };
+  $('mHow').onclick = showHowto;
+}
+$('menuBtn').addEventListener('click', showMenu);
+$('meBtn').addEventListener('click', showMenu);
+$('langBtn').addEventListener('click', () => setLang(LANG === 'vi' ? 'en' : 'vi'));
+$('langBtn2').addEventListener('click', () => setLang(LANG === 'vi' ? 'en' : 'vi'));
+
+/* ====== đăng nhập ====== */
+async function auth(action){
+  const username = $('uName').value.trim(), password = $('uPass').value;
+  $('loginErr').textContent = '';
+  if (!username || !password) { $('loginErr').textContent = t('needBoth'); return; }
+  $('loginBtn').disabled = $('regBtn').disabled = true;
+  try {
+    const r = await api({ action, username, password });
+    if (!r.ok) { $('loginErr').textContent = errText(r); sfx.bad(); }
+    else {
+      S.me = r.me; store.set('ldv_me', r.me);
+      $('login').classList.add('hidden'); $('uPass').value = '';
+      applyState(r); City.rebuild(); sfx.ok();
+      toast(action === 'register' ? t('welcomeNew', { name: r.me.username, money: fmt(START_MONEY) }) : t('welcomeBack', { name: r.me.username }), 'good');
+      if (action === 'register') setTimeout(showHowto, 900);
+    }
+  } catch (e) { $('loginErr').textContent = t('noServer'); }
+  $('loginBtn').disabled = $('regBtn').disabled = false;
+}
+$('loginBtn').addEventListener('click', () => auth('login'));
+$('regBtn').addEventListener('click', () => auth('register'));
+$('uPass').addEventListener('keydown', e => { if (e.key === 'Enter') auth('login'); });
+function logout(){
+  S.me = null; store.del('ldv_me'); S.sel = null;
+  $('login').classList.remove('hidden'); City.rebuild(); City.syncSelection(); renderUI();
+}
+window.addEventListener('keydown', e => { if (e.key === 'Escape') { S.sel = null; City.syncSelection(); renderUI(); closePop(); } });
+document.addEventListener('gesturestart', e => e.preventDefault());
+
+/* ====== khởi động ====== */
+window.LDV = { refresh, logout, setLang };
+applyStaticText();
+if (!API_URL) $('mockbar').classList.remove('hidden');
+if (S.me) $('login').classList.add('hidden');
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => City.relabel());
+renderUI(); City.resize(); refresh();
+setInterval(() => { if (!document.hidden && S.me) refresh(); }, POLL_MS);
+setInterval(renderUI, 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+</script>
+</body>
+</html>
