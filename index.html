@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#dfeaf2">
+<title>Boston Land Rush</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!--
+  Boston Land Rush (Lô Đất Vàng) — V4: song ngữ Anh/Việt, thành phố Boston 3D low-poly
+  Game bất động sản online: khu Đất Vàng gồm 3x3 khu phố, mỗi khu 3x3 ô (tổng 9x9 ô).
+  Mỗi người mua lô 2x1 nằm gọn trong một khu phố, ai mua trước thì được.
+  Dữ liệu lưu trên Google Sheet qua Apps Script (file Code.gs).
+  Để trống API_URL thì game chạy "chế độ thử" lưu trong máy (không online).
+  Hook cho app iPhone (WebView): window.LDV.refresh(), window.LDV.logout()
+-->
+<style>
+  :root{ --ink:#1f2a37; --muted:#6b7280; --card:#fffdf6; --line:#e6e0cf; --green:#0f9d76; --green-d:#0b7a5c;
+    --gold:#f5b82e; --bad:#dc2626; }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;background:#dfeaf2;color:var(--ink);overscroll-behavior:none;overflow:hidden}
+  body{font-family:'Baloo 2',system-ui,-apple-system,sans-serif;user-select:none;-webkit-user-select:none;touch-action:none}
+  button{font-family:inherit;cursor:pointer;color:inherit}
+  #scene{position:fixed;inset:0}
+  #scene canvas{display:block;width:100%;height:100%;touch-action:none}
+  .card{background:var(--card);border:1.5px solid var(--line);border-radius:18px;box-shadow:0 4px 14px rgba(31,42,55,.12)}
+  .hud{position:fixed;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top) + 8px) 10px 0;display:flex;gap:8px;align-items:flex-start;pointer-events:none;z-index:5}
+  .hud > *{pointer-events:auto}
+  .wallet{display:flex;align-items:center;gap:8px;padding:6px 12px 6px 10px;min-width:0}
+  .wallet .ic{font-size:22px}
+  .wallet b{display:block;font-size:20px;line-height:1.05;white-space:nowrap}
+  .wallet small{display:block;max-width:44vw;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font-size:13px;line-height:1.1;white-space:nowrap}
+  .city{margin-left:auto;padding:6px 12px;text-align:right;line-height:1.1}
+  .city b{font-size:16px;white-space:nowrap} .city small{display:block;color:var(--muted);font-size:13px;white-space:nowrap}
+  .city .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:4px;vertical-align:1px}
+  .city .dot.off{background:var(--bad)}
+  .side{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 70px);display:flex;flex-direction:column;gap:8px;z-index:5}
+  .rb{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;font-size:19px;padding:0}
+  .rb.on{background:var(--gold);border-color:#c98a0b}
+  .mockbar{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top) + 66px);background:#fde047;color:#3b2603;font-size:12px;font-weight:700;padding:1px 10px;border-radius:999px;z-index:4;white-space:nowrap}
+  .hint{position:fixed;left:10px;right:10px;bottom:calc(var(--sheetH, 200px) + 8px);padding:6px 12px;font-size:14px;color:var(--muted);z-index:4;text-align:center;transition:opacity .4s}
+  .sheet{position:fixed;left:0;right:0;bottom:0;padding:10px 10px calc(env(safe-area-inset-bottom) + 8px);z-index:6;display:flex;justify-content:center}
+  .sheet .card{width:100%;max-width:620px;padding:10px 10px 8px}
+  .row{display:flex;gap:8px;align-items:center}
+  .info{flex:1;min-width:0;line-height:1.12;padding-left:4px}
+  .info b{font-size:17px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .info small{color:var(--muted);font-size:13.5px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .btn{min-height:46px;padding:0 14px;border-radius:14px;border:none;font-weight:800;font-size:16px;transition:transform .06s}
+  .btn:active{transform:scale(.96)}
+  .btn:disabled{opacity:.45}
+  .buy{background:var(--green);color:#fff;box-shadow:0 3px 0 var(--green-d)}
+  .rot{background:#eef2f0;border:1.5px solid var(--line)}
+  .kinds{display:flex;gap:6px;margin-top:8px}
+  .kind{flex:1;min-width:0;min-height:48px;border-radius:14px;border:1.5px solid var(--line);background:#fff;display:grid;grid-template-columns:auto 1fr;column-gap:5px;align-items:center;text-align:left;padding:3px 7px;line-height:1.05}
+  .kind span{grid-row:1/3;font-size:21px}
+  .kind b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .kind small{font-size:12px;color:var(--muted)}
+  .kind.on{background:#e3f5ee;border-color:var(--green);box-shadow:inset 0 0 0 1.5px var(--green)}
+  .nav{display:flex;margin-top:8px;border-top:1.5px solid var(--line);padding-top:4px}
+  .nav button{flex:1;background:none;border:none;min-height:46px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:13px;font-weight:600;line-height:1.1}
+  .nav button span{font-size:19px}
+  .pop{position:fixed;inset:0;background:rgba(31,42,55,.35);z-index:20;display:flex;align-items:flex-end;justify-content:center;padding:10px}
+  .pop .card{width:100%;max-width:520px;max-height:70vh;display:flex;flex-direction:column;padding:14px;margin-bottom:env(safe-area-inset-bottom)}
+  .pop h2{margin:0 0 6px;font-size:22px;display:flex;align-items:center}
+  .pop h2 button{margin-left:auto;background:#eef2f0;border:none;border-radius:50%;width:38px;height:38px;font-size:18px}
+  .list{overflow:auto;font-size:15px}
+  .item{display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px dashed var(--line)}
+  .item:last-child{border:none}
+  .av{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:800;font-size:13px;flex:none;border:2px solid #fff;box-shadow:0 0 0 1.5px rgba(0,0,0,.15)}
+  .item .r{margin-left:auto;font-weight:700;white-space:nowrap}
+  #login{position:fixed;inset:0;background:rgba(223,234,242,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:30;padding:20px}
+  #login .card{padding:22px 18px;width:100%;max-width:360px}
+  #login h1{margin:0;text-align:center;font-size:34px;color:var(--green-d)}
+  #login p{text-align:center;margin:2px 0 14px;color:var(--muted)}
+  #login input{width:100%;height:50px;border-radius:14px;border:1.5px solid var(--line);padding:0 14px;font-family:inherit;font-size:18px;margin-bottom:10px;background:#fff;user-select:text;-webkit-user-select:text}
+  #login .btn{width:100%;margin-top:6px}
+  .err{color:var(--bad);font-weight:700;text-align:center;min-height:22px;margin-top:6px}
+  #toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 92px);transform:translateX(-50%) translateY(-16px);opacity:0;pointer-events:none;
+    background:var(--ink);color:#fff;padding:9px 16px;border-radius:14px;font-weight:700;z-index:40;transition:.25s;max-width:90vw;text-align:center}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  #toast.bad{background:var(--bad)} #toast.good{background:var(--green)}
+  #loading{position:fixed;inset:0;display:grid;place-items:center;font-size:20px;color:var(--muted);z-index:1}
+  .hidden{display:none!important}
+  @media (max-width:380px){ .wallet b{font-size:18px} .city b{font-size:15px} .nav button{font-size:12px} }
+</style>
+</head>
+<body>
+<div id="loading" data-t="loading">Đang dựng thành phố…</div>
+<div id="scene"></div>
+
+<div class="hud">
+  <div class="card wallet"><span class="ic">👛</span><div><b id="money">—</b><small id="title">Nhà đầu tư bất động sản</small></div></div>
+  <div class="card city"><b>🇺🇸 Boston, MA</b><small><span id="country"></span> · <span class="dot" id="syncDot"></span><span id="online">Đang kết nối…</span></small></div>
+</div>
+<div class="side">
+  <button class="card rb" id="priceBtn" aria-label="Xem giá đất">💲</button>
+  <button class="card rb" id="homeBtn" aria-label="Về khu Đất Vàng">🎯</button>
+  <button class="card rb" id="langBtn" aria-label="Language" style="font-size:13px;font-weight:800"></button>
+  <button class="card rb" id="menuBtn" aria-label="Menu">⋯</button>
+</div>
+<div id="mockbar" class="mockbar hidden" data-t="mock"></div>
+<div class="card hint" id="hint" data-t="hint"></div>
+
+<div class="sheet" id="sheet">
+  <div class="card">
+    <div class="row">
+      <div class="info"><b id="selTitle">Chạm vào ô đất để chọn lô</b><small id="selSub">Mỗi lô gồm 2 ô liền nhau trong cùng khu phố</small></div>
+      <button class="btn rot" id="rotBtn" aria-label="Xoay lô">↻ Ngang</button>
+      <button class="btn buy" id="buyBtn" disabled>Mua</button>
+    </div>
+    <div class="kinds">
+      <button class="kind on" data-k="house"><span>🏠</span><b data-t="house"></b><small>+$50K</small></button>
+      <button class="kind" data-k="shop"><span>🏪</span><b data-t="shop"></b><small>+$120K</small></button>
+      <button class="kind" data-k="tower"><span>🏢</span><b data-t="tower"></b><small>+$250K</small></button>
+    </div>
+    <div class="nav">
+      <button data-pop="rank"><span>📊</span><i data-t="rank" style="font-style:normal"></i></button>
+      <button data-pop="log"><span>🧾</span><i data-t="log" style="font-style:normal"></i></button>
+      <button data-pop="mine"><span>🏘️</span><i data-t="mine" style="font-style:normal"></i></button>
+      <button id="meBtn"><span>👤</span><i id="meName" style="font-style:normal">Hồ sơ</i></button>
+    </div>
+  </div>
+</div>
+
+<div id="login">
+  <div class="card">
+    <h1>Boston Land Rush</h1>
+    <p data-t="tagline"></p>
+    <input id="uName" data-tp="name" placeholder="" maxlength="16" autocomplete="username">
+    <input id="uPass" data-tp="pass" placeholder="" type="password" autocomplete="current-password">
+    <button class="btn buy" id="loginBtn" data-t="login"></button>
+    <button class="btn rot" id="regBtn" data-t="register"></button>
+    <button class="btn rot" id="langBtn2" style="margin-top:10px;min-height:40px;font-size:14px"></button>
+    <div class="err" id="loginErr"></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+/* ====== CẤU HÌNH ====== */
+// Dán link Web app của Apps Script vào đây. Để trống = chế độ thử (offline).
+const API_URL = '';
+const N = 9, START_MONEY = 1500, POLL_MS = 4000;
+const COLS = 'ABCDEFGHI';
+const BUILD = {
+  house: { get name(){ return t('house'); }, icon: '🏠', cost: 50 },
+  shop:  { get name(){ return t('shop'); }, icon: '🏪', cost: 120 },
+  tower: { get name(){ return t('tower'); }, icon: '🏢', cost: 250 }
+};
+
+/* ====== NGÔN NGỮ / LANGUAGE ====== */
+const I18N = {
+  vi: {
+    tagline: 'Mua đất trước bạn bè. Ai nhanh tay thì được.', loading: 'Đang dựng thành phố…',
+    mock: 'Chế độ thử · chưa nối Google Sheet',
+    hint: 'Kéo để lướt · Chụm để phóng to · Hai ngón xoay · Chạm ô đất để chọn',
+    pickTitle: 'Chạm vào ô đất để chọn lô', pickSub: 'Lô 2 ô nằm gọn trong 1 khu phố · chạm lần nữa để xoay',
+    wide: '↻ Ngang', tall: '↻ Dọc', buy: 'Mua', buying: 'Đang mua…',
+    house: 'Nhà phố', shop: 'Mặt bằng', tower: 'Cao ốc',
+    rank: 'Xếp hạng', log: 'Giao dịch', mine: 'Lô của tôi', profile: 'Hồ sơ',
+    name: 'Tên người chơi', pass: 'Mật khẩu (ít nhất 4 ký tự)', login: 'Đăng nhập', register: 'Tạo tài khoản mới',
+    needBoth: 'Nhập tên và mật khẩu', noServer: 'Không kết nối được máy chủ',
+    country: 'Hoa Kỳ', players: '{n} người chơi', justNow: 'vừa cập nhật', offline: 'Mất kết nối', connecting: 'Đang kết nối…',
+    t0: 'Người mới', t1: 'Nhà đầu tư', t2: 'Ông trùm địa ốc', lots: '{n} lô',
+    ownedTitle: '{icon} {kind} của {owner}', ownedSub: 'Lô {lot} · đã mua {price}', lotTitle: 'Lô {lot} · {price}',
+    free: 'Còn trống · {kind} (đất + xây). Mua nhanh kẻo mất!', noMoney: 'Không đủ tiền · bạn còn {money}',
+    built: 'Đã xây {kind} ở {lot} · {price}', lost: 'Mất kết nối, thử lại nhé', cantBuy: 'Không mua được',
+    welcomeNew: 'Chào {name}! Bạn có {money} để mua đất', welcomeBack: 'Chào mừng trở lại, {name}',
+    popRank: '📊 Xếp hạng tài sản', popLog: '🧾 Giao dịch gần đây', popMine: '🏘️ Lô của tôi',
+    you: '(bạn)', rankSub: '{n} lô · tiền mặt {money}', noPlayers: 'Chưa có người chơi', noMine: 'Bạn chưa có lô nào', noDeals: 'Chưa có giao dịch',
+    settings: 'Tuỳ chọn', soundOn: '🔇 Bật âm thanh', soundOff: '🔊 Tắt âm thanh', logout: 'Đăng xuất', lang: '🌐 English',
+    district: 'Khu Đất Vàng · Back Bay', river: 'Sông Charles',
+    shops: ['Cà Phê', 'Phở', 'Bánh Mì', 'Lobster Roll', 'Chowder', 'Tiệm Bánh', 'Pizza', 'Trà Sữa', 'Tiệm Nail'],
+    err: { NAME_LEN: 'Tên phải dài 2–16 ký tự', PASS_LEN: 'Mật khẩu ít nhất 4 ký tự', NAME_TAKEN: 'Tên này đã có người dùng',
+      NO_USER: 'Không tìm thấy tài khoản', BAD_PASS: 'Sai mật khẩu', AUTH: 'Phiên đăng nhập hết hạn, hãy đăng nhập lại',
+      OUT: 'Lô nằm ngoài bản đồ', ROAD: 'Lô không được nằm vắt qua đường', TAKEN: 'Lô đã có chủ — {owner} mua trước rồi',
+      MONEY: 'Không đủ tiền (cần {price})', BAD_CMD: 'Lệnh không hợp lệ', SERVER: 'Lỗi máy chủ, thử lại sau' }
+  },
+  en: {
+    tagline: 'Buy land before your friends do. First come, first served.', loading: 'Building the city…',
+    mock: 'Test mode · not connected to Google Sheet',
+    hint: 'Drag to pan · Pinch to zoom · Two-finger rotate · Tap a parcel to select',
+    pickTitle: 'Tap a parcel to pick a lot', pickSub: 'A lot is 2 cells inside one block · tap again to rotate',
+    wide: '↻ Wide', tall: '↻ Tall', buy: 'Buy', buying: 'Buying…',
+    house: 'House', shop: 'Shop', tower: 'Tower',
+    rank: 'Ranking', log: 'Deals', mine: 'My lots', profile: 'Profile',
+    name: 'Player name', pass: 'Password (4+ characters)', login: 'Log in', register: 'Create account',
+    needBoth: 'Enter a name and password', noServer: "Can't reach the server",
+    country: 'USA', players: '{n} players', justNow: 'just updated', offline: 'Offline', connecting: 'Connecting…',
+    t0: 'Newcomer', t1: 'Investor', t2: 'Property mogul', lots: '{n} lots',
+    ownedTitle: "{icon} {owner}'s {kind}", ownedSub: 'Lot {lot} · bought for {price}', lotTitle: 'Lot {lot} · {price}',
+    free: 'Available · {kind} (land + build). Grab it fast!', noMoney: 'Not enough cash · you have {money}',
+    built: 'Built a {kind} on {lot} · {price}', lost: 'Connection lost, try again', cantBuy: "Can't buy this lot",
+    welcomeNew: 'Welcome {name}! You have {money} to buy land', welcomeBack: 'Welcome back, {name}',
+    popRank: '📊 Net worth ranking', popLog: '🧾 Recent deals', popMine: '🏘️ My lots',
+    you: '(you)', rankSub: '{n} lots · cash {money}', noPlayers: 'No players yet', noMine: "You don't own any lots yet", noDeals: 'No deals yet',
+    settings: 'Settings', soundOn: '🔇 Sound on', soundOff: '🔊 Sound off', logout: 'Log out', lang: '🌐 Tiếng Việt',
+    district: 'Golden Lots · Back Bay', river: 'Charles River',
+    shops: ['Coffee', 'Phở', 'Bánh Mì', 'Lobster Roll', 'Chowder', 'Bakery', 'Pizza', 'Boba Tea', 'Nail Salon'],
+    err: { NAME_LEN: 'Name must be 2–16 characters', PASS_LEN: 'Password needs 4+ characters', NAME_TAKEN: 'That name is taken',
+      NO_USER: 'Account not found', BAD_PASS: 'Wrong password', AUTH: 'Session expired, please log in again',
+      OUT: 'Lot is off the map', ROAD: "A lot can't cross a road", TAKEN: 'Already owned — {owner} got there first',
+      MONEY: 'Not enough cash (need {price})', BAD_CMD: 'Invalid command', SERVER: 'Server error, try again later' }
+  }
+};
+let LANG = (() => { try { const v = localStorage.getItem('ldv_lang'); if (v) return JSON.parse(v); } catch(_){} return /^vi/i.test(navigator.language || '') ? 'vi' : 'en'; })();
+function t(key, vars){
+  let v = I18N[LANG][key]; if (v == null) v = I18N.vi[key];
+  if (typeof v !== 'string') return v;
+  return vars ? v.replace(/\{(\w+)\}/g, (_, k) => vars[k] != null ? vars[k] : '') : v;
+}
+const kindName = k => t(k);
+function errText(r){
+  const e = r && r.code && I18N[LANG].err[r.code];
+  return e ? e.replace('{owner}', r.owner || '').replace('{price}', r.price != null ? fmt(r.price) : '') : (r && r.error) || t('cantBuy');
+}
+function applyStaticText(){
+  document.documentElement.lang = LANG;
+  document.querySelectorAll('[data-t]').forEach(el => el.textContent = t(el.dataset.t));
+  document.querySelectorAll('[data-tp]').forEach(el => el.placeholder = t(el.dataset.tp));
+}
+function setLang(l){
+  LANG = l; try { localStorage.setItem('ldv_lang', JSON.stringify(l)); } catch(_){}
+  applyStaticText(); if (cityReady) { City.relabel(); City.rebuild(); } renderUI();
+}
+
+/* ====== tiện ích ====== */
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); }catch(_){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(_){} },
+  del(k){ try{ localStorage.removeItem(k); }catch(_){} }
+};
+const cellPrice = (x, y) => 100 + 50 * (4 - Math.max(Math.abs(x - 4), Math.abs(y - 4)));
+const cellsOf = (x, y, dir) => dir === 'v' ? [[x, y], [x, y + 1]] : [[x, y], [x + 1, y]];
+const sameBlock = (x, y, dir) => { const c = cellsOf(x, y, dir); return Math.floor(c[0][0] / 3) === Math.floor(c[1][0] / 3) && Math.floor(c[0][1] / 3) === Math.floor(c[1][1] / 3); };
+const fmt = n => { n = Number(n); return n >= 1000 ? '$' + (n / 1000).toLocaleString('en-US', { maximumFractionDigits: 2 }) + 'M' : '$' + n + 'K'; };
+const lotName = (x, y, dir) => cellsOf(x, y, dir).map(c => COLS[c[0]] + (c[1] + 1)).join('–');
+const esc = s => String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+const hashN = s => { let h = 7; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) | 0; return Math.abs(h); };
+
+/* ====== máy chủ thử (giống luật trong Code.gs) ====== */
+const MOCK_COLORS = ['#e94f37','#3b82f6','#22c55e','#f59e0b','#a855f7','#ec4899','#14b8a6','#f97316'];
+function mockApi(p){
+  return new Promise(res => setTimeout(() => {
+    const db = store.get('ldv_mock', { users: [], lots: [] });
+    const state = () => ({ ok: true, users: db.users.map(u => ({ username: u.username, money: u.money, color: u.color })), lots: db.lots.slice(), serverTime: Date.now() });
+    const save = () => store.set('ldv_mock', db);
+    const name = String(p.username || '').trim().replace(/\s+/g, ' ');
+    const find = () => db.users.find(u => u.username.toLowerCase() === name.toLowerCase());
+    if (p.action === 'state') return res(state());
+    if (p.action === 'register'){
+      if (name.length < 2 || name.length > 16) return res({ ok:false, code:'NAME_LEN', error:'Tên phải dài 2–16 ký tự' });
+      if (String(p.password||'').length < 4) return res({ ok:false, code:'PASS_LEN', error:'Mật khẩu ít nhất 4 ký tự' });
+      if (find()) return res({ ok:false, code:'NAME_TAKEN', error:'Tên này đã có người dùng' });
+      const u = { username: name, pass: p.password, token: Math.random().toString(36).slice(2), money: START_MONEY, color: MOCK_COLORS[db.users.length % MOCK_COLORS.length] };
+      db.users.push(u); save();
+      return res(Object.assign(state(), { me: { username: u.username, token: u.token } }));
+    }
+    if (p.action === 'login'){
+      const u = find();
+      if (!u) return res({ ok:false, code:'NO_USER', error:'Không tìm thấy tài khoản' });
+      if (u.pass !== p.password) return res({ ok:false, code:'BAD_PASS', error:'Sai mật khẩu' });
+      return res(Object.assign(state(), { me: { username: u.username, token: u.token } }));
+    }
+    if (p.action === 'buy'){
+      const u = db.users.find(u => u.username === p.username && u.token === p.token);
+      if (!u) return res({ ok:false, code:'AUTH', error:'Phiên đăng nhập hết hạn, hãy đăng nhập lại' });
+      const dir = p.dir === 'v' ? 'v' : 'h', cs = cellsOf(+p.x, +p.y, dir);
+      if (!cs.every(c => c[0] >= 0 && c[1] >= 0 && c[0] < N && c[1] < N)) return res({ ok:false, code:'OUT', error:'Lô nằm ngoài bản đồ' });
+      if (!sameBlock(+p.x, +p.y, dir)) return res({ ok:false, code:'ROAD', error:'Lô không được nằm vắt qua đường' });
+      const taken = {};
+      db.lots.forEach(l => cellsOf(l.x, l.y, l.dir).forEach(c => taken[c] = l.owner));
+      for (const c of cs) if (taken[c]) return res(Object.assign(state(), { ok:false, code:'TAKEN', owner: taken[c], error:'Lô đã có chủ — ' + taken[c] + ' mua trước rồi' }));
+      const kind = BUILD[p.kind] ? p.kind : 'house';
+      const price = cs.reduce((s, c) => s + cellPrice(c[0], c[1]), 0) + BUILD[kind].cost;
+      if (u.money < price) return res(Object.assign(state(), { ok:false, code:'MONEY', price, error:'Không đủ tiền (cần $' + price + 'K)' }));
+      db.lots.push({ id: Math.random().toString(36).slice(2, 10), x: +p.x, y: +p.y, dir, owner: u.username, price, boughtAt: Date.now(), kind });
+      u.money -= price; save();
+      return res(Object.assign(state(), { bought: { x: +p.x, y: +p.y, dir, price, kind } }));
+    }
+    res({ ok:false, code:'BAD_CMD', error:'Lệnh không hợp lệ' });
+  }, 200 + Math.random() * 200));
+}
+
+async function api(p){
+  if (!API_URL) return mockApi(p);
+  // text/plain để Apps Script không bị chặn CORS (không có preflight)
+  const r = await fetch(API_URL, { method: 'POST', body: JSON.stringify(p), redirect: 'follow' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+/* ====== trạng thái ====== */
+let cityReady = false;
+const S = {
+  me: store.get('ldv_me', null),
+  users: [], lots: [], known: null,
+  sel: null, dir: 'h', kind: 'house',
+  lastSync: 0, busy: false, online: true, showPrice: false
+};
+const cellOwner = () => { const m = {}; S.lots.forEach(l => cellsOf(l.x, l.y, l.dir).forEach(c => m[c] = l)); return m; };
+const meUser = () => S.me && S.users.find(u => u.username === S.me.username);
+const colorOf = name => (S.users.find(u => u.username === name) || {}).color || '#94a3b8';
+
+function applyState(r){
+  if (r && Array.isArray(r.users)) {
+    r.lots.forEach(l => { if (!BUILD[l.kind]) l.kind = 'house'; });
+    const fresh = S.known ? r.lots.filter(l => !S.known.has(l.id)).map(l => l.id) : [];
+    S.known = new Set(r.lots.map(l => l.id));
+    S.users = r.users; S.lots = r.lots; S.lastSync = Date.now(); S.online = true;
+    if (cityReady) City.syncLots(fresh);
+  }
+  if (cityReady) City.syncSelection();
+  renderUI();
+  if (openPop && openPop !== 'menu') fillPop(openPop);
+}
+async function refresh(){
+  if (S.busy) return;
+  try { applyState(await api({ action: 'state' })); }
+  catch (e) { S.online = false; renderUI(); }
+}
+
+/* ====== âm thanh ====== */
+let actx = null, muted = store.get('ldv_muted', false);
+function beep(freqs, dur = .09, type = 'triangle', vol = .06){
+  if (muted) return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    freqs.forEach((f, i) => {
+      const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime + i * dur;
+      o.type = type; o.frequency.value = f; g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+      o.connect(g).connect(actx.destination); o.start(t); o.stop(t + dur);
+    });
+  } catch(_){}
+}
+const sfx = { tap: () => beep([700], .05), ok: () => beep([523, 659, 784, 1046], .08), bad: () => beep([220, 160], .14, 'sawtooth', .05) };
+
+/* =====================================================================
+   THÀNH PHỐ 3D
+   Khu Đất Vàng: khu phố bx,by = 0..2, mỗi khu 3x3 ô. Xung quanh là phố trang trí.
+   ===================================================================== */
+const City = (() => {
+  const ROAD = 1.4, P = 3 + ROAD, C = (2 * P + 3) / 2;
+  const RIVER_ROW = 4;                     // hàng khu phố thành sông
+  const PASTEL = ['#cdbcea', '#f3c9b6', '#efdba3', '#c3e3d6', '#bdd3ec', '#ebe5d9', '#f4bcae', '#d8e7b8'];
+  const host = $('scene');
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  host.appendChild(renderer.domElement);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color('#dfeaf2');
+  scene.fog = new THREE.Fog('#dfeaf2', 38, 85);
+  const camera = new THREE.PerspectiveCamera(34, 1, 0.5, 300);
+
+  scene.add(new THREE.HemisphereLight('#ffffff', '#9fb38c', 0.62));
+  const sun = new THREE.DirectionalLight('#fff3df', 0.62);
+  sun.position.set(-14, 26, 10); sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 70 });
+  sun.shadow.bias = -0.0008; sun.shadow.normalBias = 0.02;
+  scene.add(sun); scene.add(sun.target);
+
+  /* vật liệu dùng chung */
+  const mats = {};
+  const M = (color, opts = {}) => {
+    const k = color + JSON.stringify(opts);
+    return mats[k] || (mats[k] = new THREE.MeshStandardMaterial(Object.assign({ color, roughness: .92, metalness: 0 }, opts)));
+  };
+  const box = (w, h, d, mat, x, y, z, parent, shadow = true) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y + h / 2, z); m.castShadow = shadow; m.receiveShadow = true; parent.add(m); return m;
+  };
+  /* kết cấu cửa sổ */
+  function windowTex(base, lit){
+    const c = document.createElement('canvas'); c.width = 64; c.height = 64; const g = c.getContext('2d');
+    g.fillStyle = base; g.fillRect(0, 0, 64, 64);
+    g.fillStyle = lit; for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) g.fillRect(6 + i * 32, 8 + j * 32, 20, 18);
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t;
+  }
+  const winCache = {};
+  function towerMats(color, w, h, d){
+    const key = color + w.toFixed(2) + h.toFixed(2) + d.toFixed(2);
+    if (winCache[key]) return winCache[key];
+    const base = windowTex(color, 'rgba(255,255,255,.55)');
+    const sx = base.clone(); sx.needsUpdate = true; sx.repeat.set(Math.max(1, Math.round(d * 2)), Math.max(1, Math.round(h * 2.2)));
+    const sz = base.clone(); sz.needsUpdate = true; sz.repeat.set(Math.max(1, Math.round(w * 2)), Math.max(1, Math.round(h * 2.2)));
+    const mx = new THREE.MeshStandardMaterial({ map: sx, roughness: .85 }), mz = new THREE.MeshStandardMaterial({ map: sz, roughness: .85 });
+    const top = M(color);
+    return (winCache[key] = [mx, mx, top, top, mz, mz]);
+  }
+
+  /* toạ độ ô của khu Đất Vàng → thế giới */
+  const cellX = x => Math.floor(x / 3) * P + (x % 3) + .5 - C;
+  const blockX = bx => bx * P - C;            // mép trái khu phố
+
+  /* ---------- mặt đất, đường, sông ---------- */
+  const world = new THREE.Group(); scene.add(world);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), M('#cfe3b0'));
+  ground.rotation.x = -Math.PI / 2; ground.position.y = -.02; ground.receiveShadow = true; world.add(ground);
+  const BMIN = -3, BMAX = 5;
+  const span0 = blockX(BMIN) - ROAD, span1 = blockX(BMAX) + 3 + ROAD;
+  const asphalt = new THREE.Mesh(new THREE.PlaneGeometry(span1 - span0, span1 - span0), M('#a3a9b1'));
+  asphalt.rotation.x = -Math.PI / 2; asphalt.position.set((span0 + span1) / 2, 0, (span0 + span1) / 2); asphalt.receiveShadow = true; world.add(asphalt);
+  // vạch kẻ đường
+  const dashGeo = new THREE.BoxGeometry(.5, .01, .07), dashMat = M('#f6d860');
+  const dashCount = Math.ceil((span1 - span0) / 1.1) * (BMAX - BMIN + 2) * 2;
+  const dashes = new THREE.InstancedMesh(dashGeo, dashMat, dashCount); let di = 0; const dm = new THREE.Matrix4();
+  for (let b = BMIN; b <= BMAX + 1; b++) {
+    const r = blockX(b) - ROAD / 2;
+    for (let t = span0 + .5; t < span1 - .5; t += 1.1) {
+      if (di < dashCount) { dm.makeTranslation(t, .012, r); dashes.setMatrixAt(di++, dm); }
+      if (di < dashCount) { dm.makeRotationY(Math.PI / 2); dm.setPosition(r, .012, t); dashes.setMatrixAt(di++, dm); }
+    }
+  }
+  dashes.count = di; world.add(dashes);
+  // sông
+  const rz0 = blockX(RIVER_ROW) - .3, rz1 = blockX(RIVER_ROW) + 3 + .3;
+  const river = new THREE.Mesh(new THREE.PlaneGeometry(span1 - span0 + 200, rz1 - rz0), M('#9fd3e6', { roughness: .35 }));
+  river.rotation.x = -Math.PI / 2; river.position.set(0, .02, (rz0 + rz1) / 2); world.add(river);
+  [rz0 - .35, rz1].forEach(z => { const bank = box(span1 - span0 + 200, .08, .35, M('#d9e8c4'), 0, 0, z + .175, world, false); });
+  // cầu
+  const bridgeX = blockX(1) - ROAD / 2;
+  box(ROAD * .95, .18, rz1 - rz0 + .8, M('#b8bec6'), bridgeX, .04, (rz0 + rz1) / 2, world);
+  [-1, 1].forEach(s => box(.08, .25, rz1 - rz0 + .8, M('#e5e7eb'), bridgeX + s * ROAD * .45, .22, (rz0 + rz1) / 2, world));
+
+  /* ---------- cây ---------- */
+  const trunkGeo = new THREE.CylinderGeometry(.04, .05, .25, 5), leafGeo = new THREE.IcosahedronGeometry(.2, 0);
+  function tree(x, z, s = 1, parent = world){
+    const t = new THREE.Mesh(trunkGeo, M('#8b6b4a')); t.position.set(x, .125 * s, z); t.scale.setScalar(s); t.castShadow = true; parent.add(t);
+    const l = new THREE.Mesh(leafGeo, M(['#5fb85a', '#4fa64f', '#76c46a'][hashN(x * 13 + z) % 3], { flatShading: true }));
+    l.position.set(x, .38 * s, z); l.scale.setScalar(s); l.castShadow = true; parent.add(l);
+  }
+
+  /* ---------- phố trang trí ---------- */
+  function rnd(seed){ let s = (Math.abs(seed * 2654435761) % 2147483646) + 1; const f = () => (s = (s * 16807) % 2147483647) / 2147483647; f(); f(); f(); return f; }
+  const deco = new THREE.Group(); world.add(deco);
+  function sidewalk(x0, z0, color = '#e6e2d8'){
+    const s = box(3.2, .06, 3.2, M(color), x0 + 1.5, 0, z0 + 1.5, deco, false); s.castShadow = false;
+  }
+  const labels = [];
+  function drawLabel(sp){
+    const { text, bg, fg, scale } = sp.userData.lbl, str = typeof text === 'function' ? text() : text;
+    const c = document.createElement('canvas'), g = c.getContext('2d'); g.font = '700 40px "Baloo 2", sans-serif';
+    const w = Math.ceil(g.measureText(str).width) + 36; c.width = w; c.height = 64;
+    g.font = '700 40px "Baloo 2", sans-serif';
+    g.fillStyle = bg; g.beginPath(); g.roundRect ? g.roundRect(2, 4, w - 4, 56, 18) : g.rect(2, 4, w - 4, 56); g.fill();
+    g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(str, w / 2, 34);
+    if (sp.material.map) sp.material.map.dispose();
+    sp.material.map = new THREE.CanvasTexture(c); sp.material.needsUpdate = true;
+    sp.scale.set(w / 64 * .45 * scale, .45 * scale, 1);
+  }
+  // text có thể là hàm để vẽ lại khi đổi ngôn ngữ
+  function labelSprite(text, bg, fg = '#fff', scale = 1, keep = true){
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ depthTest: true }));
+    sp.userData.lbl = { text, bg, fg, scale }; drawLabel(sp);
+    if (keep) labels.push(sp);
+    return sp;
+  }
+  /* ---------- Boston: địa danh + kiểu nhà ---------- */
+  const BOS_TOWER = ['#c9d3dd', '#b4c3d3', '#d9d0c1', '#e6dccb', '#9fb4c9', '#cbc3b6', '#dfe6ec'];
+  const BRICK = ['#a64b35', '#b5603f', '#8f3f2e', '#c27552', '#9b5a44'];
+  const SIDING = ['#ece6d6', '#c9d8e4', '#dfe8d0', '#f1dfc6', '#e6d3d3'];
+  const tag = (text, x, y, z, s = .8) => { const lb = labelSprite(text, 'rgba(255,255,255,.94)', '#1f2a37', s); lb.position.set(x, y, z); deco.add(lb); };
+  const LANDMARKS = {
+    '-1,1'(x0, z0){   // Boston Common
+      box(3, .02, 3, M('#a9d48a'), x0 + 1.5, .06, z0 + 1.5, deco, false);
+      const pond = new THREE.Mesh(new THREE.CylinderGeometry(.75, .75, .03, 24), M('#8fcbe0', { roughness: .3 }));
+      pond.position.set(x0 + 1.9, .1, z0 + 1.7); pond.scale.z = .7; deco.add(pond);
+      box(3, .025, .12, M('#e8dcc0'), x0 + 1.5, .07, z0 + .8, deco, false);
+      box(.12, .025, 3, M('#e8dcc0'), x0 + .8, .07, z0 + 1.5, deco, false);
+      [[.3, .3], [2.6, .4], [.4, 2.6], [1.2, .3], [2.7, 2.7], [.3, 1.5], [1.4, 2.7]].forEach(([a, b]) => tree(x0 + a, z0 + b, 1.2, deco));
+      tag('🌳 Boston Common', x0 + 1.5, 1.4, z0 + 1.5);
+    },
+    '-1,0'(x0, z0){   // State House
+      box(2.4, 1, 1.5, M('#b5603f'), x0 + 1.5, .06, z0 + 1.6, deco);
+      box(1.2, .9, .35, M('#f4f1ea'), x0 + 1.5, .06, z0 + 2.5, deco);
+      for (let i = 0; i < 5; i++) box(.08, .8, .08, M('#ffffff'), x0 + 1.02 + i * .24, .06, z0 + 2.72, deco);
+      box(.9, .25, .9, M('#f4f1ea'), x0 + 1.5, 1.06, z0 + 1.6, deco);
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(.45, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), M('#e8b923', { metalness: .45, roughness: .35 }));
+      dome.position.set(x0 + 1.5, 1.31, z0 + 1.6); dome.castShadow = true; deco.add(dome);
+      box(.14, .3, .14, M('#e8b923', { metalness: .45, roughness: .35 }), x0 + 1.5, 1.72, z0 + 1.6, deco);
+      tag('🏛️ State House', x0 + 1.5, 2.6, z0 + 1.6);
+    },
+    '3,1'(x0, z0){    // Prudential
+      box(2.8, .5, 2.8, M('#cfd5db'), x0 + 1.5, .06, z0 + 1.5, deco);
+      const t = new THREE.Mesh(new THREE.BoxGeometry(1.3, 7.5, 1.3), towerMats('#b9c2cc', 1.3, 7.5, 1.3));
+      t.position.set(x0 + 1.5, .56 + 3.75, z0 + 1.5); t.castShadow = t.receiveShadow = true; deco.add(t);
+      box(1, .5, 1, M('#9aa5b1'), x0 + 1.5, 8.06, z0 + 1.5, deco);
+      const ant = new THREE.Mesh(new THREE.CylinderGeometry(.03, .05, 1.4, 6), M('#e5e7eb')); ant.position.set(x0 + 1.5, 9.25, z0 + 1.5); deco.add(ant);
+      tag('Prudential', x0 + 1.5, 10.2, z0 + 1.5);
+    },
+    '3,0'(x0, z0){    // Hancock
+      const t = new THREE.Mesh(new THREE.BoxGeometry(.9, 7, 2), M('#7fa6c9', { roughness: .2, metalness: .3 }));
+      t.position.set(x0 + 1.5, .06 + 3.5, z0 + 1.5); t.castShadow = t.receiveShadow = true; deco.add(t);
+      tag('Hancock Tower', x0 + 1.5, 7.8, z0 + 1.5);
+      tree(x0 + .3, z0 + .3, 1, deco); tree(x0 + 2.7, z0 + 2.7, 1, deco);
+    },
+    '1,-1'(x0, z0){   // Faneuil Hall
+      box(2.6, .8, 1.2, M('#b5603f'), x0 + 1.5, .06, z0 + 1.2, deco);
+      const roof = new THREE.Mesh(new THREE.CylinderGeometry(.62, .62, 2.6, 3, 1), M('#5f6b78', { flatShading: true }));
+      roof.rotation.z = Math.PI / 2; roof.position.set(x0 + 1.5, 1.08, z0 + 1.2); roof.scale.set(1, 1, .9); roof.castShadow = true; deco.add(roof);
+      box(.3, .35, .3, M('#ffffff'), x0 + 1.5, 1.3, z0 + 1.2, deco);
+      const cup = new THREE.Mesh(new THREE.SphereGeometry(.16, 12, 8), M('#e8b923', { metalness: .4 })); cup.position.set(x0 + 1.5, 1.75, z0 + 1.2); deco.add(cup);
+      box(2.6, .02, 1, M('#d9c7a8'), x0 + 1.5, .06, z0 + 2.4, deco, false);
+      tag('Faneuil Hall', x0 + 1.5, 2.3, z0 + 1.2);
+    }
+  };
+  for (let bx = BMIN; bx <= BMAX; bx++) for (let by = BMIN; by <= BMAX; by++) {
+    if (by === RIVER_ROW) continue;
+    if (bx >= 0 && bx <= 2 && by >= 0 && by <= 2) continue;   // khu Đất Vàng
+    const x0 = blockX(bx), z0 = blockX(by), r = rnd(1000 + bx * 97 + by * 31 + 9999);
+    const d = Math.max(Math.abs(bx - 1), Math.abs(by - 1));
+    sidewalk(x0, z0);
+    if (LANDMARKS[bx + ',' + by]) { LANDMARKS[bx + ',' + by](x0, z0); continue; }
+    const kind = r();
+    if (kind < .12 || d >= 5) {                  // công viên
+      box(3, .02, 3, M('#bcd99a'), x0 + 1.5, .06, z0 + 1.5, deco, false);
+      for (let i = 0; i < 7; i++) tree(x0 + .3 + r() * 2.4, z0 + .3 + r() * 2.4, .9 + r() * .6, deco);
+    } else if (kind < .5 && d <= 3) {           // cao ốc kính / đá
+      const n = 1 + Math.floor(r() * 3);
+      for (let i = 0; i < n; i++) {
+        const w = .9 + r() * .6, dd = .9 + r() * .6, h = 1.6 + r() * (d <= 1 ? 4.5 : d === 2 ? 3.2 : 2), col = BOS_TOWER[Math.floor(r() * BOS_TOWER.length)];
+        const px = x0 + .6 + (i % 2) * 1.6 + r() * .2, pz = z0 + .6 + Math.floor(i / 2) * 1.6 + r() * .3;
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, dd), towerMats(col, w, h, dd));
+        m.position.set(px + w / 2, .06 + h / 2, pz + dd / 2); m.castShadow = m.receiveShadow = true; deco.add(m);
+        box(w * .6, .35, dd * .6, M(col), px + w / 2, .06 + h, pz + dd / 2, deco);
+      }
+      tree(x0 + 2.8, z0 + 2.8, 1, deco); tree(x0 + .2, z0 + 2.8, 1, deco);
+    } else if (kind < .82) {                    // dãy nhà gạch brownstone
+      [.15, 2.0].forEach(zz => {
+        for (let i = 0; i < 4; i++) {
+          const h = .85 + r() * .4, col = BRICK[Math.floor(r() * BRICK.length)];
+          box(.7, h, .85, M(col), x0 + .2 + i * .7 + .35, .06, z0 + zz + .42, deco);
+          box(.74, .06, .89, M('#5b3a2e'), x0 + .2 + i * .7 + .35, .06 + h, z0 + zz + .42, deco);
+          box(.5, .25, .02, M('#f4efe6'), x0 + .2 + i * .7 + .35, .06 + h * .45, z0 + zz + .86, deco, false);
+        }
+      });
+      for (let i = 0; i < 3; i++) tree(x0 + .6 + i * 1, z0 + 1.55, .8, deco);
+    } else {                                     // nhà gỗ kiểu New England (triple-decker)
+      for (let i = 0; i < 4; i++) {
+        const px = x0 + .4 + (i % 2) * 1.4, pz = z0 + .4 + Math.floor(i / 2) * 1.4, col = SIDING[Math.floor(r() * SIDING.length)];
+        const h = .8 + r() * .5;
+        box(.9, h, 1, M(col), px + .5, .06, pz + .5, deco);
+        const roof = new THREE.Mesh(new THREE.CylinderGeometry(.55, .55, 1.04, 3, 1), M(['#5f6b78', '#6b7280', '#7a4a3a'][Math.floor(r() * 3)], { flatShading: true }));
+        roof.rotation.x = Math.PI / 2; roof.rotation.y = Math.PI / 2; roof.rotation.order = 'YXZ';
+        roof.position.set(px + .5, .06 + h + .2, pz + .5); roof.scale.set(.85, 1, .55); roof.castShadow = true; deco.add(roof);
+      }
+    }
+  }
+  // tên sông + thuyền buồm
+  const rl = labelSprite(() => '〰 ' + t('river'), 'rgba(255,255,255,.9)', '#1f6f8b', 1); rl.position.set(blockX(-1), .9, (rz0 + rz1) / 2); deco.add(rl);
+  const boats = [];
+  for (let i = 0; i < 5; i++) {
+    const g = new THREE.Group();
+    box(.45, .08, .16, M('#ffffff'), 0, 0, 0, g);
+    const sail = new THREE.Mesh(new THREE.ConeGeometry(.16, .5, 3), M(['#ffffff', '#f59e0b', '#ef4444', '#3b82f6'][i % 4], { flatShading: true }));
+    sail.position.set(.02, .33, 0); sail.scale.z = .25; sail.castShadow = true; g.add(sail);
+    g.position.set(span0 + i * 9, .03, rz0 + .7 + (i % 3) * .8); world.add(g);
+    boats.push({ g, v: .25 + (i % 3) * .12 });
+  }
+  // cây dọc bờ sông
+  for (let x = span0; x < span1; x += 1.3) { tree(x, rz0 - .55, .8); tree(x + .6, rz1 + .45, .8); }
+
+  /* ---------- xe chạy ---------- */
+  const cars = [];
+  const carCols = ['#ef4444', '#f8fafc', '#3b82f6', '#facc15', '#111827', '#10b981'];
+  for (let i = 0; i < 14; i++) {
+    const g = new THREE.Group();
+    box(.5, .16, .25, M(carCols[i % carCols.length]), 0, .04, 0, g);
+    box(.28, .12, .22, M('#dbeafe'), -.03, .2, 0, g);
+    const horiz = i % 2 === 0, lane = BMIN + Math.floor((i * 7) % (BMAX - BMIN + 2));
+    const roadC = blockX(lane) - ROAD / 2, side = i % 4 < 2 ? 1 : -1;
+    const car = { g, horiz, roadC: roadC + side * .3, dirn: side, t: span0 + ((i * 37) % (span1 - span0)), speed: 1.2 + (i % 3) * .4 };
+    if (!horiz) g.rotation.y = Math.PI / 2;
+    if (side < 0) g.rotation.y += Math.PI;
+    cars.push(car); world.add(g);
+  }
+
+  /* ---------- khu Đất Vàng ---------- */
+  const district = new THREE.Group(); world.add(district);
+  for (let bx = 0; bx < 3; bx++) for (let by = 0; by < 3; by++) {
+    box(3.3, .07, 3.3, M('#ece8de'), blockX(bx) + 1.5, 0, blockX(by) + 1.5, district, false);
+  }
+  // biển tên khu
+  const sign = labelSprite(() => '⭐ ' + t('district'), 'rgba(15,157,118,.92)', '#fff', 1.1); sign.position.set(0, 0, 0);
+  sign.position.set(blockX(1) + 1.5, 5.6, blockX(-1) + 2.2); scene.add(sign);
+  const TILE_BASE = ['#d9cdf0', '#dccaee', '#e1c6ea', '#e8c2e0', '#efbdd2'];
+  const tiles = [];
+  const tileGeo = new THREE.BoxGeometry(.92, .04, .92);
+  for (let x = 0; x < N; x++) { tiles[x] = []; for (let y = 0; y < N; y++) {
+    const t = 4 - Math.max(Math.abs(x - 4), Math.abs(y - 4));
+    const m = new THREE.Mesh(tileGeo, new THREE.MeshStandardMaterial({ color: TILE_BASE[t], roughness: .95 }));
+    m.position.set(cellX(x), .09, cellX(y)); m.receiveShadow = true; district.add(m);
+    m.userData.base = TILE_BASE[t]; tiles[x][y] = m;
+  } }
+  // nhãn giá
+  const priceSprites = [];
+  for (let x = 0; x < N; x++) for (let y = 0; y < N; y++) {
+    const sp = labelSprite(fmt(cellPrice(x, y)), 'rgba(31,42,55,.78)', '#fff', .55);
+    sp.position.set(cellX(x), .45, cellX(y)); sp.visible = false; sp.userData.cell = [x, y]; district.add(sp); priceSprites.push(sp);
+  }
+
+  /* ---------- công trình của người chơi ---------- */
+  function avatarSprite(name, color, mine){
+    const c = document.createElement('canvas'); c.width = 160; c.height = 190; const g = c.getContext('2d');
+    g.fillStyle = 'rgba(0,0,0,.18)'; g.beginPath(); g.arc(80, 70, 56, 0, 7); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(80, 64, 56, 0, 7); g.fill();
+    g.fillStyle = color; g.beginPath(); g.arc(80, 64, 47, 0, 7); g.fill();
+    g.fillStyle = '#fff'; g.font = '800 52px "Baloo 2", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(name.trim().charAt(0).toUpperCase(), 80, 68);
+    if (mine) { g.font = '700 30px sans-serif'; g.fillText('★', 128, 22); }
+    g.font = '700 30px "Baloo 2", sans-serif';
+    const label = name.length > 9 ? name.slice(0, 8) + '…' : name, w = Math.min(156, g.measureText(label).width + 22);
+    g.fillStyle = 'rgba(255,255,255,.95)'; g.beginPath(); g.roundRect ? g.roundRect(80 - w / 2, 132, w, 44, 14) : g.rect(80 - w / 2, 132, w, 44); g.fill();
+    g.fillStyle = '#1f2a37'; g.fillText(label, 80, 156);
+    const t = new THREE.CanvasTexture(c);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false }));
+    sp.renderOrder = 10; sp.scale.set(1.05, 1.25, 1); return sp;
+  }
+
+  function buildLot(l, ghost){
+    const g = new THREE.Group();
+    const op = ghost ? { transparent: true, opacity: .55 } : {};
+    const Mm = (c, o = {}) => M(c, Object.assign({}, o, op));
+    const col = ghost ? '#0f9d76' : colorOf(l.owner);
+    const w = l.dir === 'h' ? 2 : 1, d = l.dir === 'v' ? 2 : 1;
+    const x0 = cellX(l.x) - .5, z0 = cellX(l.y) - .5, cx = x0 + w / 2, cz = z0 + d / 2;
+    const wall = PASTEL[hashN(l.id) % PASTEL.length];
+    let top = 1;
+    const B = (W, H, D, mat, x, y, z) => { const m = box(W, H, D, mat, x, y, z, g); if (ghost) m.castShadow = false; return m; };
+    if (l.kind === 'house') {
+      const hx = cellX(l.x), hz = cellX(l.y);
+      const yx = l.dir === 'h' ? cellX(l.x + 1) : hx, yz = l.dir === 'v' ? cellX(l.y + 1) : hz;
+      B(.9, .02, .9, Mm('#a9d68a'), yx, .11, yz);
+      B(.7, .62, .7, Mm(wall), hx, .11, hz);
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(.6, .42, 4), Mm(col, { flatShading: true }));
+      roof.rotation.y = Math.PI / 4; roof.position.set(hx, .73 + .21, hz); roof.castShadow = !ghost; g.add(roof);
+      const fx = l.dir === 'h' ? .36 : 0, fz = l.dir === 'v' ? .36 : 0;
+      B(l.dir === 'h' ? .02 : .2, .3, l.dir === 'h' ? .2 : .02, Mm('#7c4a2b'), hx + fx, .11, hz + fz);
+      if (!ghost) { tree(yx + .2, yz + .2, 1.1, g); tree(yx - .25, yz - .2, .8, g); }
+      top = 1.15;
+    } else if (l.kind === 'shop') {
+      const W = w - .2, D = d - .2, H = .78;
+      B(W, H, D, Mm(wall), cx, .11, cz);
+      B(W + .02, .3, D + .02, Mm('#bfe3f3', { roughness: .3 }), cx, .14, cz);
+      B(W + .14, .06, D + .14, Mm(col), cx, .5, cz);
+      B(W * .8, .05, D * .8, Mm('#e5e7eb'), cx, .11 + H, cz);
+      B(.25, .18, .25, Mm('#cbd5e1'), cx - W * .25, .11 + H + .05, cz - D * .2);
+      if (!ghost) { const lb = labelSprite(t('shops')[hashN(l.id) % t('shops').length], col, '#fff', .75, false); lb.position.set(cx, 1.25, cz); g.add(lb); }
+      top = 1.6;
+    } else {
+      const W = w - .3, D = d - .3, H = 3.2;
+      const m = new THREE.Mesh(new THREE.BoxGeometry(W, H, D), ghost ? Mm(wall) : towerMats(wall, W, H, D));
+      m.position.set(cx, .11 + H / 2, cz); m.castShadow = !ghost; m.receiveShadow = true; g.add(m);
+      B(W * .65, .9, D * .65, Mm(wall), cx, .11 + H, cz);
+      B(W * .67, .14, D * .67, Mm(col), cx, .11 + H + .9, cz);
+      B(W + .06, .25, D + .06, Mm('#dbe4ee'), cx, .11, cz);
+      top = 4.6;
+    }
+    g.userData = { lot: l, top };
+    if (!ghost) {
+      g.traverse(o => { if (o.isMesh) o.userData.lotId = l.id; });
+      const av = avatarSprite(l.owner, col, S.me && l.owner === S.me.username);
+      av.position.set(cx, top + .7, cz); av.userData.isAvatar = true; g.add(av);
+    }
+    return g;
+  }
+
+  const lotObjs = new Map();   // id -> {group, born}
+  function syncLots(fresh = []){
+    const ids = new Set(S.lots.map(l => l.id));
+    for (const [id, o] of lotObjs) if (!ids.has(id)) { district.remove(o.group); lotObjs.delete(id); }
+    S.lots.forEach(l => {
+      const old = lotObjs.get(l.id);
+      if (old && old.owner === l.owner && old.color === colorOf(l.owner) && old.me === (S.me && S.me.username)) return;
+      if (old) district.remove(old.group);
+      const gr = buildLot(l, false); district.add(gr);
+      lotObjs.set(l.id, { group: gr, owner: l.owner, color: colorOf(l.owner), me: S.me && S.me.username, born: fresh.includes(l.id) ? performance.now() : 0 });
+    });
+    // màu ô
+    const own = cellOwner();
+    for (let x = 0; x < N; x++) for (let y = 0; y < N; y++) {
+      const o = own[[x, y]], t = tiles[x][y];
+      t.material.color.set(o ? new THREE.Color(colorOf(o.owner)).lerp(new THREE.Color('#ffffff'), .72) : t.userData.base);
+    }
+    priceSprites.forEach(sp => sp.visible = S.showPrice && !own[sp.userData.cell]);
+  }
+
+  /* ---------- ô đang chọn ---------- */
+  const selGroup = new THREE.Group(); district.add(selGroup);
+  const selMat = new THREE.MeshBasicMaterial({ color: '#22c55e', transparent: true, opacity: .45, depthWrite: false });
+  const selMesh = new THREE.Mesh(new THREE.BoxGeometry(1, .03, 1), selMat); selGroup.add(selMesh);
+  const selEdge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, .05, 1)), new THREE.LineBasicMaterial({ color: '#15803d' }));
+  selGroup.add(selEdge);
+  let ghostObj = null, ghostKey = '';
+  function syncSelection(){
+    if (!S.sel) { selGroup.visible = false; if (ghostObj) { district.remove(ghostObj); ghostObj = null; ghostKey = ''; } return; }
+    const st = selStatus(), w = S.dir === 'h' ? 2 : 1, d = S.dir === 'v' ? 2 : 1;
+    selGroup.visible = true;
+    selGroup.position.set(cellX(S.sel.x) - .5 + w / 2, .12, cellX(S.sel.y) - .5 + d / 2);
+    selGroup.scale.set(w - .04, 1, d - .04);
+    selMat.color.set(st.ok ? '#22c55e' : '#ef4444'); selEdge.material.color.set(st.ok ? '#15803d' : '#b91c1c');
+    const key = st.ok ? [S.sel.x, S.sel.y, S.dir, S.kind].join() : '';
+    if (key !== ghostKey) {
+      if (ghostObj) district.remove(ghostObj);
+      ghostObj = key ? buildLot({ id: 'ghost' + key, x: S.sel.x, y: S.sel.y, dir: S.dir, kind: S.kind, owner: '' }, true) : null;
+      if (ghostObj) district.add(ghostObj);
+      ghostKey = key;
+    }
+  }
+
+  /* ---------- camera + điều khiển ---------- */
+  const cam = { tx: 0, tz: 1, dist: 17, yaw: Math.PI / 4, pitch: .92 };
+  function fitDistance(){
+    const a = innerWidth / Math.max(1, innerHeight), half = THREE.MathUtils.degToRad(camera.fov / 2);
+    const hf = Math.atan(Math.tan(half) * a), need = a < .8 ? 15.5 : 27;
+    cam.dist = (need / 2) / Math.tan(Math.min(hf, half * 1.15));
+  }
+  function updateCamera(){
+    cam.dist = Math.max(6, Math.min(75, cam.dist));
+    scene.fog.near = cam.dist * 1.1; scene.fog.far = cam.dist * 2.6;
+    const lim = 14; cam.tx = Math.max(-lim, Math.min(lim, cam.tx)); cam.tz = Math.max(-lim, Math.min(lim + 6, cam.tz));
+    const h = Math.sin(cam.pitch) * cam.dist, r = Math.cos(cam.pitch) * cam.dist;
+    camera.position.set(cam.tx + Math.sin(cam.yaw) * r, h, cam.tz + Math.cos(cam.yaw) * r);
+    camera.lookAt(cam.tx, 0, cam.tz);
+  }
+  function resize(){
+    const w = innerWidth, h = innerHeight;
+    renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+    document.documentElement.style.setProperty('--sheetH', $('sheet').offsetHeight + 'px');
+    // dời tâm nhìn lên trên khung dưới
+    camera.setViewOffset(w, h, 0, ($('sheet').offsetHeight - 70) * .45, w, h);
+  }
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -.1);
+  function groundAt(px, py){
+    ndc.set(px / innerWidth * 2 - 1, -(py / innerHeight) * 2 + 1); ray.setFromCamera(ndc, camera);
+    const p = new THREE.Vector3(); return ray.ray.intersectPlane(plane, p) ? p : null;
+  }
+  function pickCell(px, py){
+    ndc.set(px / innerWidth * 2 - 1, -(py / innerHeight) * 2 + 1); ray.setFromCamera(ndc, camera);
+    const hits = ray.intersectObjects([...lotObjs.values()].map(o => o.group), true).filter(h => h.object.userData.lotId);
+    if (hits.length) { const l = S.lots.find(l => l.id === hits[0].object.userData.lotId); if (l) return { x: l.x, y: l.y, lot: l }; }
+    const p = groundAt(px, py); if (!p) return null;
+    const u = p.x + C, v = p.z + C;
+    const bx = Math.floor(u / P), by = Math.floor(v / P), lx = u - bx * P, ly = v - by * P;
+    if (bx < 0 || by < 0 || bx > 2 || by > 2 || lx > 3 || ly > 3) return null;
+    return { x: bx * 3 + Math.floor(lx), y: by * 3 + Math.floor(ly) };
+  }
+
+  const el = renderer.domElement, ptrs = new Map(); let drag = null, multi = null;
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch(_){}
+    ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+    if (ptrs.size === 1) drag = { start: [e.clientX, e.clientY], last: [e.clientX, e.clientY], moved: false, rotate: e.button === 2 || e.shiftKey };
+    if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; multi = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), ang: Math.atan2(b[1] - a[1], b[0] - a[0]) }; drag = null; }
+    hideHint();
+  });
+  el.addEventListener('pointermove', e => {
+    if (!ptrs.has(e.pointerId)) return;
+    ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+    if (multi && ptrs.size >= 2) {
+      const [a, b] = [...ptrs.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]), ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+      cam.dist *= multi.d / d; cam.yaw -= ang - multi.ang; multi.d = d; multi.ang = ang; updateCamera();
+    } else if (drag) {
+      const p = [e.clientX, e.clientY];
+      if (!drag.moved && Math.hypot(p[0] - drag.start[0], p[1] - drag.start[1]) > 8) drag.moved = true;
+      if (drag.moved) {
+        if (drag.rotate) { cam.yaw -= (p[0] - drag.last[0]) * .008; }
+        else {
+          const a = groundAt(drag.last[0], drag.last[1]), b = groundAt(p[0], p[1]);
+          if (a && b) { cam.tx += a.x - b.x; cam.tz += a.z - b.z; }
+        }
+        updateCamera();
+      }
+      drag.last = p;
+    }
+  });
+  const endPtr = e => {
+    if (!ptrs.has(e.pointerId)) return;
+    ptrs.delete(e.pointerId);
+    if (drag && !drag.moved && ptrs.size === 0 && e.type === 'pointerup') onTap(drag.start[0], drag.start[1]);
+    if (ptrs.size < 2) multi = null;
+    if (ptrs.size === 0) drag = null;
+  };
+  el.addEventListener('pointerup', endPtr); el.addEventListener('pointercancel', endPtr);
+  el.addEventListener('contextmenu', e => e.preventDefault());
+  el.addEventListener('wheel', e => { e.preventDefault(); cam.dist *= e.deltaY > 0 ? 1.1 : 1 / 1.1; updateCamera(); hideHint(); }, { passive: false });
+
+  /* ---------- vòng lặp ---------- */
+  const easeBack = k => { const c = 1.7; k = Math.min(1, k) - 1; return 1 + (c + 1) * k * k * k + c * k * k; };
+  let last = performance.now();
+  function loop(now){
+    const dt = Math.min(.05, (now - last) / 1000); last = now;
+    cars.forEach(c => {
+      c.t += c.speed * dt * c.dirn;
+      if (c.t > span1) c.t = span0; if (c.t < span0) c.t = span1;
+      const onRiver = !c.horiz && c.t > rz0 - .4 && c.t < rz1 + .4 && Math.abs(c.roadC - bridgeX) > 1;
+      c.g.visible = !onRiver;
+      if (c.horiz) c.g.position.set(c.t, 0, c.roadC); else c.g.position.set(c.roadC, 0, c.t);
+    });
+    for (const o of lotObjs.values()) if (o.born) {
+      const k = (now - o.born) / 700;
+      if (k >= 1) { o.born = 0; o.group.scale.set(1, 1, 1); }
+      else { const s = Math.max(.02, easeBack(k)); o.group.scale.set(1, s, 1); }
+    }
+    boats.forEach(b => { b.g.position.x += b.v * dt; if (b.g.position.x > span1) b.g.position.x = span0; b.g.rotation.z = Math.sin(now / 600 + b.v * 9) * .05; });
+    if (ghostObj) ghostObj.position.y = Math.sin(now / 250) * .03 + .03;
+    selMat.opacity = .35 + Math.sin(now / 300) * .12;
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
+  }
+
+  fitDistance(); resize(); updateCamera();
+  window.addEventListener('resize', () => { resize(); updateCamera(); });
+  requestAnimationFrame(loop);
+  $('loading').classList.add('hidden');
+  cityReady = true;
+  return {
+    syncLots, syncSelection, pickCell, resize,
+    relabel(){ labels.forEach(drawLabel); },
+    rebuild(){ for (const o of lotObjs.values()) district.remove(o.group); lotObjs.clear(); syncLots(); },
+    home(){ cam.tx = 0; cam.tz = 1; cam.yaw = Math.PI / 4; fitDistance(); updateCamera(); },
+    setPrice(v){ S.showPrice = v; syncLots(); },
+    lotObjs, cam, updateCamera, cellX,
+    screenOf(x, y){ const v = new THREE.Vector3(cellX(x), .1, cellX(y)).project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight]; }
+  };
+})();
+
+/* ====== chọn lô ====== */
+function clampSel(){
+  if (!S.sel) return;
+  S.sel.x = Math.max(0, Math.min(N - (S.dir === 'h' ? 2 : 1), S.sel.x));
+  S.sel.y = Math.max(0, Math.min(N - (S.dir === 'v' ? 2 : 1), S.sel.y));
+  // không cho lô vắt qua đường
+  if (S.dir === 'h' && S.sel.x % 3 === 2) S.sel.x -= 1;
+  if (S.dir === 'v' && S.sel.y % 3 === 2) S.sel.y -= 1;
+}
+const lotPrice = (x, y, dir, kind) => cellsOf(x, y, dir).reduce((s, c) => s + cellPrice(c[0], c[1]), 0) + BUILD[kind].cost;
+function selStatus(){
+  if (!S.sel) return { ok: false };
+  if (S.sel.lot) return { ok: false, lot: S.sel.lot, why: '' };
+  const own = cellOwner(), cs = cellsOf(S.sel.x, S.sel.y, S.dir);
+  const price = lotPrice(S.sel.x, S.sel.y, S.dir, S.kind);
+  const owner = cs.map(c => own[c]).find(Boolean);
+  const me = meUser();
+  if (owner) return { ok: false, price, lot: owner };
+  if (me && me.money < price) return { ok: false, price, why: t('noMoney', { money: fmt(me.money) }) };
+  return { ok: true, price };
+}
+function onTap(px, py){
+  const c = City.pickCell(px, py);
+  if (!c) { if (S.sel) { S.sel = null; City.syncSelection(); renderUI(); } return; }
+  if (c.lot) { S.sel = { x: c.lot.x, y: c.lot.y, tx: c.lot.x, ty: c.lot.y, lot: c.lot }; sfx.tap(); City.syncSelection(); renderUI(); return; }
+  if (S.sel && !S.sel.lot && S.sel.tx === c.x && S.sel.ty === c.y) { rotate(); return; }
+  S.sel = { x: c.x, y: c.y, tx: c.x, ty: c.y }; clampSel(); sfx.tap(); City.syncSelection(); renderUI();
+}
+function rotate(){
+  S.dir = S.dir === 'h' ? 'v' : 'h';
+  if (S.sel && !S.sel.lot) { S.sel.x = S.sel.tx; S.sel.y = S.sel.ty; clampSel(); }
+  sfx.tap(); City.syncSelection(); renderUI();
+}
+
+/* ====== mua ====== */
+async function buy(){
+  if (!S.me || !S.sel || S.busy) return;
+  const st = selStatus(); if (!st.ok) { toast(st.why || t('cantBuy'), 'bad'); sfx.bad(); return; }
+  S.busy = true; renderUI();
+  const { x, y } = S.sel, dir = S.dir;
+  try {
+    const r = await api({ action: 'buy', username: S.me.username, token: S.me.token, x, y, dir, kind: S.kind });
+    S.busy = false;
+    if (r.ok) {
+      S.sel = null; applyState(r);
+      toast(t('built', { kind: BUILD[r.bought.kind].name, lot: lotName(x, y, dir), price: fmt(r.bought.price) }), 'good'); sfx.ok();
+    } else {
+      if (r.code === 'AUTH') logout();
+      applyState(r); toast(errText(r), 'bad'); sfx.bad();
+    }
+  } catch (e) { S.busy = false; toast(t('lost'), 'bad'); sfx.bad(); }
+  renderUI();
+}
+
+/* ====== giao diện ====== */
+function renderUI(){
+  const me = meUser();
+  $('money').textContent = me ? fmt(me.money) : '—';
+  const myLots = S.me ? S.lots.filter(l => l.owner === S.me.username) : [];
+  $('title').textContent = t(myLots.length >= 3 ? 't2' : myLots.length ? 't1' : 't0') + ' · ' + t('lots', { n: myLots.length });
+  $('meName').textContent = S.me ? S.me.username : t('profile');
+  $('country').textContent = t('country');
+  $('langBtn').textContent = LANG === 'vi' ? 'EN' : 'VI'; $('langBtn2').textContent = t('lang');
+  const ago = S.lastSync ? Math.round((Date.now() - S.lastSync) / 1000) : null;
+  $('online').textContent = !S.online ? t('offline') : ago == null ? t('connecting') : `${t('players', { n: S.users.length })} · ${ago < 3 ? t('justNow') : ago + 's'}`;
+  $('syncDot').classList.toggle('off', !S.online);
+  const st = selStatus();
+  $('rotBtn').textContent = t(S.dir === 'h' ? 'wide' : 'tall');
+  if (S.sel && st.lot) {
+    $('selTitle').textContent = t('ownedTitle', { icon: BUILD[st.lot.kind].icon, kind: BUILD[st.lot.kind].name, owner: st.lot.owner });
+    $('selSub').textContent = t('ownedSub', { lot: lotName(st.lot.x, st.lot.y, st.lot.dir), price: fmt(st.lot.price) });
+  } else if (S.sel) {
+    $('selTitle').textContent = t('lotTitle', { lot: lotName(S.sel.x, S.sel.y, S.dir), price: fmt(st.price) });
+    $('selSub').textContent = st.ok ? t('free', { kind: BUILD[S.kind].name }) : st.why;
+  } else {
+    $('selTitle').textContent = t('pickTitle');
+    $('selSub').textContent = t('pickSub');
+  }
+  $('buyBtn').disabled = !S.sel || !st.ok || S.busy;
+  $('buyBtn').textContent = t(S.busy ? 'buying' : 'buy');
+  document.querySelectorAll('.kind').forEach(b => b.classList.toggle('on', b.dataset.k === S.kind));
+}
+
+let openPop = null;
+function fillPop(kind){
+  const p = $('pop'); if (!p) return;
+  const L = p.querySelector('.list'); let html = '';
+  const av = name => `<span class="av" style="background:${colorOf(name)}">${esc(name.charAt(0).toUpperCase())}</span>`;
+  if (kind === 'rank') {
+    const rows = S.users.map(u => {
+      const lots = S.lots.filter(l => l.owner === u.username);
+      return { u, n: lots.length, total: u.money + lots.reduce((s, l) => s + l.price, 0) };
+    }).sort((a, b) => b.total - a.total);
+    html = rows.map((r, i) => `<div class="item"><b>${i + 1}</b>${av(r.u.username)}<span>${esc(r.u.username)}${S.me && r.u.username === S.me.username ? ' ' + t('you') : ''}<br><small style="color:var(--muted)">${t('rankSub', { n: r.n, money: fmt(r.u.money) })}</small></span><span class="r">${fmt(r.total)}</span></div>`).join('') || `<div class="item">${t('noPlayers')}</div>`;
+  } else {
+    const lots = S.lots.filter(l => kind === 'log' || (S.me && l.owner === S.me.username)).sort((a, b) => b.boughtAt - a.boughtAt);
+    html = lots.map(l => `<div class="item" data-goto="${l.id}">${av(l.owner)}<span>${BUILD[l.kind].icon} ${esc(l.owner)} · <b>${lotName(l.x, l.y, l.dir)}</b><br><small style="color:var(--muted)">${BUILD[l.kind].name} · ${new Date(l.boughtAt).toLocaleString(LANG === 'vi' ? 'vi-VN' : 'en-US', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}</small></span><span class="r">${fmt(l.price)}</span></div>`).join('')
+      || `<div class="item">${t(kind === 'mine' ? 'noMine' : 'noDeals')}</div>`;
+  }
+  L.innerHTML = html;
+  L.querySelectorAll('[data-goto]').forEach(it => it.onclick = () => {
+    const l = S.lots.find(l => l.id === it.dataset.goto); if (!l) return;
+    closePop(); City.cam.tx = City.cellX(l.x) + .5; City.cam.tz = City.cellX(l.y) + .5; City.cam.dist = 9; City.updateCamera();
+    S.sel = { x: l.x, y: l.y, tx: l.x, ty: l.y, lot: l }; City.syncSelection(); renderUI();
+  });
+}
+const POP_TITLES = { rank: 'popRank', log: 'popLog', mine: 'popMine' };
+function showPop(kind){
+  closePop(); openPop = kind;
+  const d = document.createElement('div'); d.className = 'pop'; d.id = 'pop';
+  d.innerHTML = `<div class="card"><h2>${t(POP_TITLES[kind])}<button aria-label="Close">✕</button></h2><div class="list"></div></div>`;
+  d.addEventListener('click', e => { if (e.target === d) closePop(); });
+  d.querySelector('h2 button').onclick = closePop;
+  document.body.appendChild(d); fillPop(kind);
+}
+function closePop(){ const p = $('pop'); if (p) p.remove(); openPop = null; }
+document.querySelectorAll('[data-pop]').forEach(b => b.addEventListener('click', () => showPop(b.dataset.pop)));
+
+let toastT;
+function toast(msg, kind){
+  const t = $('toast'); t.textContent = msg; t.className = 'show ' + (kind || '');
+  clearTimeout(toastT); toastT = setTimeout(() => t.className = '', 2600);
+}
+let hintGone = false;
+function hideHint(){ if (hintGone) return; hintGone = true; setTimeout(() => $('hint').style.opacity = 0, 1500); setTimeout(() => $('hint').classList.add('hidden'), 2000); }
+
+$('rotBtn').addEventListener('click', rotate);
+$('buyBtn').addEventListener('click', buy);
+document.querySelectorAll('.kind').forEach(b => b.addEventListener('click', () => { S.kind = b.dataset.k; sfx.tap(); City.syncSelection(); renderUI(); }));
+$('priceBtn').addEventListener('click', () => { City.setPrice(!S.showPrice); $('priceBtn').classList.toggle('on', S.showPrice); });
+$('homeBtn').addEventListener('click', () => City.home());
+function showMenu(){
+  closePop();
+  const d = document.createElement('div'); d.className = 'pop'; d.id = 'pop';
+  d.innerHTML = `<div class="card"><h2>👤 ${S.me ? esc(S.me.username) : t('settings')}<button aria-label="Close">✕</button></h2>
+    <button class="btn rot" id="mLang" style="margin-bottom:8px">${t('lang')}</button>
+    <button class="btn rot" id="mMute" style="margin-bottom:8px">${t(muted ? 'soundOn' : 'soundOff')}</button>
+    <button class="btn rot" id="mOut">${t('logout')}</button></div>`;
+  d.addEventListener('click', e => { if (e.target === d) closePop(); });
+  document.body.appendChild(d);
+  d.querySelector('h2 button').onclick = closePop;
+  $('mMute').onclick = () => { muted = !muted; store.set('ldv_muted', muted); closePop(); };
+  $('mOut').onclick = () => { closePop(); logout(); };
+  $('mLang').onclick = () => { closePop(); setLang(LANG === 'vi' ? 'en' : 'vi'); };
+}
+$('menuBtn').addEventListener('click', showMenu);
+$('langBtn').addEventListener('click', () => setLang(LANG === 'vi' ? 'en' : 'vi'));
+$('langBtn2').addEventListener('click', () => setLang(LANG === 'vi' ? 'en' : 'vi'));
+$('meBtn').addEventListener('click', showMenu);
+
+/* ====== đăng nhập ====== */
+async function auth(action){
+  const username = $('uName').value.trim(), password = $('uPass').value;
+  $('loginErr').textContent = '';
+  if (!username || !password) { $('loginErr').textContent = t('needBoth'); return; }
+  $('loginBtn').disabled = $('regBtn').disabled = true;
+  try {
+    const r = await api({ action, username, password });
+    if (!r.ok) { $('loginErr').textContent = errText(r); sfx.bad(); }
+    else {
+      S.me = r.me; store.set('ldv_me', r.me);
+      $('login').classList.add('hidden'); $('uPass').value = '';
+      S.known = null; applyState(r); City.syncLots(); sfx.ok();
+      toast(action === 'register' ? t('welcomeNew', { name: r.me.username, money: fmt(START_MONEY) }) : t('welcomeBack', { name: r.me.username }), 'good');
+    }
+  } catch (e) { $('loginErr').textContent = t('noServer'); }
+  $('loginBtn').disabled = $('regBtn').disabled = false;
+}
+$('loginBtn').addEventListener('click', () => auth('login'));
+$('regBtn').addEventListener('click', () => auth('register'));
+$('uPass').addEventListener('keydown', e => { if (e.key === 'Enter') auth('login'); });
+function logout(){
+  S.me = null; store.del('ldv_me'); S.sel = null;
+  $('login').classList.remove('hidden'); City.syncLots(); City.syncSelection(); renderUI();
+}
+
+/* ====== bàn phím ====== */
+window.addEventListener('keydown', e => {
+  if (!S.me || document.activeElement.tagName === 'INPUT') return;
+  const mv = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+  if (mv) {
+    e.preventDefault();
+    if (!S.sel || S.sel.lot) S.sel = { x: 4, y: 4, tx: 4, ty: 4 };
+    S.sel.tx = Math.max(0, Math.min(N - 1, S.sel.tx + mv[0])); S.sel.ty = Math.max(0, Math.min(N - 1, S.sel.ty + mv[1]));
+    S.sel.x = S.sel.tx; S.sel.y = S.sel.ty; clampSel(); City.syncSelection(); renderUI();
+  } else if (e.key === 'r' || e.key === 'R') rotate();
+  else if (e.key === 'k' || e.key === 'K') { const ks = Object.keys(BUILD); S.kind = ks[(ks.indexOf(S.kind) + 1) % ks.length]; City.syncSelection(); renderUI(); }
+  else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); buy(); }
+  else if (e.key === 'Escape') { S.sel = null; City.syncSelection(); renderUI(); }
+});
+document.addEventListener('gesturestart', e => e.preventDefault());
+
+/* ====== khởi động ====== */
+window.LDV = { refresh, logout, setLang };
+applyStaticText();
+if (!API_URL) $('mockbar').classList.remove('hidden');
+if (S.me) $('login').classList.add('hidden');
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => City.rebuild());
+renderUI(); City.resize(); refresh();
+setInterval(() => { if (!document.hidden && S.me) refresh(); }, POLL_MS);
+setInterval(renderUI, 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+</script>
+</body>
+</html>
