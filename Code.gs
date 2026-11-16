@@ -10,7 +10,35 @@
 
 const N = 9;               // bản đồ 9x9
 const START_MONEY = 1500;  // tiền khởi điểm (triệu)
-const BUILD = { house: 50, shop: 120, tower: 250 }; // chi phí xây: nhà phố, mặt bằng, cao ốc
+const BUILD = { house: 50, shop: 120, tower: 250 }; // chi phí xây: nhà phố, mặt bằng, cao ốc ($K)
+
+// ===== Thời gian game: do máy chủ quyết định, mọi người chơi giống nhau =====
+const SPEED = 24;                       // 1 giờ thật = 1 ngày trong game
+const DAY_MS = 86400000 / SPEED;        // số ms thật của 1 ngày game
+const CAP_DAYS = 12;                    // tiền chưa thu chỉ cộng dồn tối đa 12 ngày game
+const RATE = { house: 10, shop: 16, tower: 28 }; // thu nhập cơ bản $K / ngày game
+
+function gameStart_() {
+  const props = PropertiesService.getScriptProperties();
+  let v = Number(props.getProperty('GAME_START'));
+  if (!v) { v = Date.now(); props.setProperty('GAME_START', String(v)); }
+  return v;
+}
+
+/* Thu nhập 1 lô / ngày game, có cộng hiệu ứng láng giềng (lô chạm cạnh, của ai cũng tính) */
+function lotCells_(l) { return cells_(l.x, l.y, l.dir); }
+function neighbors_(l, lots) {
+  const mine = {}; lotCells_(l).forEach(c => mine[c[0] + ',' + c[1]] = 1);
+  return lots.filter(o => o.id !== l.id && lotCells_(o).some(c =>
+    [[1, 0], [-1, 0], [0, 1], [0, -1]].some(d => mine[(c[0] + d[0]) + ',' + (c[1] + d[1])])));
+}
+function lotRate_(l, lots) {
+  const nb = neighbors_(l, lots), count = k => nb.filter(o => o.kind === k).length;
+  const kind = RATE[l.kind] ? l.kind : 'house';
+  if (kind === 'shop') return RATE.shop + 4 * Math.min(4, count('house'));
+  if (kind === 'tower') return RATE.tower + 6 * Math.min(3, count('tower'));
+  return RATE.house + 2 * Math.min(3, count('shop'));
+}
 const COLORS = ['#e94f37', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ec4899', '#14b8a6', '#f97316'];
 
 function doGet(e) { return out_(handle_((e && e.parameter) || {})); }
@@ -31,7 +59,11 @@ function sheet_(name, headers) {
   return s;
 }
 function usersSheet_() { return sheet_('Users', ['username', 'passHash', 'token', 'money', 'color', 'createdAt']); }
-function lotsSheet_() { return sheet_('Lots', ['id', 'x', 'y', 'dir', 'owner', 'price', 'boughtAt', 'kind']); }
+function lotsSheet_() {
+  const s = sheet_('Lots', ['id', 'x', 'y', 'dir', 'owner', 'price', 'boughtAt', 'kind', 'collectedAt']);
+  if (s.getRange(1, 9).getValue() !== 'collectedAt') s.getRange(1, 8, 1, 2).setValues([['kind', 'collectedAt']]);
+  return s;
+}
 function rows_(s) { const v = s.getDataRange().getValues(); v.shift(); return v; }
 
 function hash_(str) {
@@ -50,6 +82,7 @@ function handle_(p) {
       if (p.action === 'register') return register_(p);
       if (p.action === 'login') return login_(p);
       if (p.action === 'buy') return buy_(p);
+      if (p.action === 'collect') return collect_(p);
       return { ok: false, code: 'BAD_CMD', error: 'Lệnh không hợp lệ' };
     } finally {
       lock.releaseLock();
@@ -63,9 +96,10 @@ function state_() {
   const users = rows_(usersSheet_()).map(r => ({ username: String(r[0]), money: Number(r[3]), color: String(r[4]) }));
   const lots = rows_(lotsSheet_()).map(r => ({
     id: String(r[0]), x: Number(r[1]), y: Number(r[2]), dir: String(r[3]),
-    owner: String(r[4]), price: Number(r[5]), boughtAt: Number(r[6]), kind: String(r[7] || 'house')
+    owner: String(r[4]), price: Number(r[5]), boughtAt: Number(r[6]), kind: String(r[7] || 'house'),
+    collectedAt: Number(r[8]) || Number(r[6])
   }));
-  return { ok: true, users: users, lots: lots, serverTime: Date.now() };
+  return { ok: true, users: users, lots: lots, serverTime: Date.now(), gameStart: gameStart_(), speed: SPEED };
 }
 
 function cleanName_(n) { return String(n || '').trim().replace(/\s+/g, ' '); }
@@ -136,10 +170,36 @@ function buy_(p) {
   const money = Number(users[ui][3]);
   if (money < price) { const st = state_(); st.ok = false; st.code = 'MONEY'; st.price = price; st.error = 'Không đủ tiền (cần $' + price + 'K)'; return st; }
 
-  ls.appendRow([Utilities.getUuid().slice(0, 8), x, y, dir, String(users[ui][0]), price, Date.now(), kind]);
+  ls.appendRow([Utilities.getUuid().slice(0, 8), x, y, dir, String(users[ui][0]), price, Date.now(), kind, Date.now()]);
   us.getRange(ui + 2, 4).setValue(money - price);
   SpreadsheetApp.flush();
   const st = state_();
   st.bought = { x: x, y: y, dir: dir, price: price, kind: kind };
+  return st;
+}
+
+/* Thu tiền: máy chủ tự tính theo giờ máy chủ, người chơi không gửi thời gian lên */
+function collect_(p) {
+  const us = usersSheet_();
+  const users = rows_(us);
+  const ui = users.findIndex(r => String(r[0]) === String(p.username) && String(r[2]) === String(p.token));
+  if (ui < 0) return { ok: false, code: 'AUTH', error: 'Phiên đăng nhập hết hạn, hãy đăng nhập lại' };
+  const me = String(users[ui][0]);
+  const ls = lotsSheet_();
+  const raw = rows_(ls);
+  const lots = raw.map(r => ({ id: String(r[0]), x: Number(r[1]), y: Number(r[2]), dir: String(r[3]), owner: String(r[4]), kind: String(r[7] || 'house'), collectedAt: Number(r[8]) || Number(r[6]) }));
+  const now = Date.now();
+  let total = 0;
+  lots.forEach((l, i) => {
+    if (l.owner !== me) return;
+    const days = Math.min(CAP_DAYS, Math.max(0, (now - l.collectedAt) / DAY_MS));
+    total += lotRate_(l, lots) * days;
+    ls.getRange(i + 2, 9).setValue(now);
+  });
+  const amount = Math.floor(total);
+  us.getRange(ui + 2, 4).setValue(Number(users[ui][3]) + amount);
+  SpreadsheetApp.flush();
+  const st = state_();
+  st.collected = amount;
   return st;
 }

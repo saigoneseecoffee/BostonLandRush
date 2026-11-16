@@ -11,7 +11,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!--
-  Boston Land Rush (Lô Đất Vàng) — V4: song ngữ Anh/Việt, thành phố Boston 3D low-poly
+  Boston Land Rush (Lô Đất Vàng) — V5: đồng hồ game theo máy chủ, thu nhập theo ngày game, hiệu ứng láng giềng · song ngữ Anh/Việt · Boston 3D
   Game bất động sản online: khu Đất Vàng gồm 3x3 khu phố, mỗi khu 3x3 ô (tổng 9x9 ô).
   Mỗi người mua lô 2x1 nằm gọn trong một khu phố, ai mua trước thì được.
   Dữ liệu lưu trên Google Sheet qua Apps Script (file Code.gs).
@@ -34,6 +34,7 @@
   .wallet .ic{font-size:22px}
   .wallet b{display:block;font-size:20px;line-height:1.05;white-space:nowrap}
   .wallet small{display:block;max-width:44vw;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font-size:13px;line-height:1.1;white-space:nowrap}
+  .wallet{flex:0 1 auto} .city{flex:0 1 auto;min-width:0;overflow:hidden}
   .city{margin-left:auto;padding:6px 12px;text-align:right;line-height:1.1}
   .city b{font-size:16px;white-space:nowrap} .city small{display:block;color:var(--muted);font-size:13px;white-space:nowrap}
   .city .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:4px;vertical-align:1px}
@@ -42,6 +43,13 @@
   .rb{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;font-size:19px;padding:0}
   .rb.on{background:var(--gold);border-color:#c98a0b}
   .mockbar{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top) + 66px);background:#fde047;color:#3b2603;font-size:12px;font-weight:700;padding:1px 10px;border-radius:999px;z-index:4;white-space:nowrap}
+  .leftcol{display:flex;flex-direction:column;gap:6px;min-width:0}
+  .clock{padding:4px 12px;font-size:14px;font-weight:700;white-space:nowrap;align-self:flex-start}
+  .collect{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--sheetH, 200px) + 10px);z-index:5;border:none;border-radius:999px;
+    background:linear-gradient(#fcd34d,#f5b82e);color:#3b2603;box-shadow:0 4px 0 #c98a0b,0 6px 16px rgba(0,0,0,.18);min-height:50px;padding:4px 20px 4px 14px;display:flex;align-items:center;gap:8px;font-family:inherit}
+  .collect span{font-size:24px} .collect b{font-size:19px} .collect small{font-size:12px;opacity:.8;max-width:120px;line-height:1.1;text-align:left}
+  .collect:active{transform:translateX(-50%) translateY(3px);box-shadow:0 1px 0 #c98a0b}
+  .collect:disabled{filter:grayscale(.6);opacity:.75}
   .hint{position:fixed;left:10px;right:10px;bottom:calc(var(--sheetH, 200px) + 8px);padding:6px 12px;font-size:14px;color:var(--muted);z-index:4;text-align:center;transition:opacity .4s}
   .sheet{position:fixed;left:0;right:0;bottom:0;padding:10px 10px calc(env(safe-area-inset-bottom) + 8px);z-index:6;display:flex;justify-content:center}
   .sheet .card{width:100%;max-width:620px;padding:10px 10px 8px}
@@ -92,8 +100,9 @@
 <div id="scene"></div>
 
 <div class="hud">
-  <div class="card wallet"><span class="ic">👛</span><div><b id="money">—</b><small id="title">Nhà đầu tư bất động sản</small></div></div>
-  <div class="card city"><b>🇺🇸 Boston, MA</b><small><span id="country"></span> · <span class="dot" id="syncDot"></span><span id="online">Đang kết nối…</span></small></div>
+  <div class="leftcol"><div class="card wallet"><span class="ic">👛</span><div><b id="money">—</b><small id="title"></small></div></div>
+    <div class="card clock" id="clock">📅 —</div></div>
+  <div class="card city"><b>🇺🇸 Boston, MA</b><small><span class="dot" id="syncDot"></span><span id="online">Đang kết nối…</span></small></div>
 </div>
 <div class="side">
   <button class="card rb" id="priceBtn" aria-label="Xem giá đất">💲</button>
@@ -103,6 +112,7 @@
 </div>
 <div id="mockbar" class="mockbar hidden" data-t="mock"></div>
 <div class="card hint" id="hint" data-t="hint"></div>
+<button class="collect hidden" id="collectBtn"><span>💰</span><b id="collectAmt">+$0K</b><small id="collectSub"></small></button>
 
 <div class="sheet" id="sheet">
   <div class="card">
@@ -170,7 +180,12 @@ const I18N = {
     built: 'Đã xây {kind} ở {lot} · {price}', lost: 'Mất kết nối, thử lại nhé', cantBuy: 'Không mua được',
     welcomeNew: 'Chào {name}! Bạn có {money} để mua đất', welcomeBack: 'Chào mừng trở lại, {name}',
     popRank: '📊 Xếp hạng tài sản', popLog: '🧾 Giao dịch gần đây', popMine: '🏘️ Lô của tôi',
-    you: '(bạn)', rankSub: '{n} lô · tiền mặt {money}', noPlayers: 'Chưa có người chơi', noMine: 'Bạn chưa có lô nào', noDeals: 'Chưa có giao dịch',
+    perDay: '{money}/ngày', nbBonus: '+{n} láng giềng', projected: 'Dự kiến {money}/ngày',
+    collect: 'Thu tiền', collected: 'Đã thu {money} tiền thuê & doanh thu!', nothing: 'Chưa có tiền để thu', full: 'Kho đầy — thu ngay!',
+    sunny: '☀️ Nắng', cloudy: '⛅ Nhiều mây', rain: '🌧️ Mưa', snow: '❄️ Tuyết',
+    howto: '❓ Cách kiếm tiền',
+    howtoBody: '<p>⏱️ Thời gian game do <b>máy chủ</b> quyết định, mọi người như nhau: <b>1 giờ thật = 1 ngày</b> trong game.</p><p>🏠 Nhà phố: <b>$10K/ngày</b>, +$2K cho mỗi mặt bằng sát bên (tối đa 3).</p><p>🏪 Mặt bằng: <b>$16K/ngày</b>, +$4K cho mỗi nhà phố sát bên — càng đông dân càng đông khách (tối đa 4).</p><p>🏢 Cao ốc: <b>$28K/ngày</b>, +$6K cho mỗi cao ốc sát bên (tối đa 3).</p><p>🤝 Láng giềng của người khác cũng tính. Tiền cộng dồn cả khi tắt game, tối đa <b>12 ngày</b> — nhớ quay lại bấm <b>💰 Thu tiền</b>.</p>',
+    you: '(bạn)', rankSub: '{n} lô · tiền mặt {money} · {inc}/ngày', noPlayers: 'Chưa có người chơi', noMine: 'Bạn chưa có lô nào', noDeals: 'Chưa có giao dịch',
     settings: 'Tuỳ chọn', soundOn: '🔇 Bật âm thanh', soundOff: '🔊 Tắt âm thanh', logout: 'Đăng xuất', lang: '🌐 English',
     district: 'Khu Đất Vàng · Back Bay', river: 'Sông Charles',
     shops: ['Cà Phê', 'Phở', 'Bánh Mì', 'Lobster Roll', 'Chowder', 'Tiệm Bánh', 'Pizza', 'Trà Sữa', 'Tiệm Nail'],
@@ -196,7 +211,12 @@ const I18N = {
     built: 'Built a {kind} on {lot} · {price}', lost: 'Connection lost, try again', cantBuy: "Can't buy this lot",
     welcomeNew: 'Welcome {name}! You have {money} to buy land', welcomeBack: 'Welcome back, {name}',
     popRank: '📊 Net worth ranking', popLog: '🧾 Recent deals', popMine: '🏘️ My lots',
-    you: '(you)', rankSub: '{n} lots · cash {money}', noPlayers: 'No players yet', noMine: "You don't own any lots yet", noDeals: 'No deals yet',
+    perDay: '{money}/day', nbBonus: '+{n} neighbors', projected: 'Est. {money}/day',
+    collect: 'Collect', collected: 'Collected {money} in rent & sales!', nothing: 'Nothing to collect yet', full: 'Storage full — collect now!',
+    sunny: '☀️ Sunny', cloudy: '⛅ Cloudy', rain: '🌧️ Rain', snow: '❄️ Snow',
+    howto: '❓ How to earn',
+    howtoBody: '<p>⏱️ Game time is set by the <b>server</b>, the same for everyone: <b>1 real hour = 1 game day</b>.</p><p>🏠 House: <b>$10K/day</b>, +$2K per adjacent shop (max 3).</p><p>🏪 Shop: <b>$16K/day</b>, +$4K per adjacent house — more residents, more customers (max 4).</p><p>🏢 Tower: <b>$28K/day</b>, +$6K per adjacent tower (max 3).</p><p>🤝 Other players\' buildings count as neighbors too. Income keeps piling up while you are away, up to <b>12 days</b> — come back and tap <b>💰 Collect</b>.</p>',
+    you: '(you)', rankSub: '{n} lots · cash {money} · {inc}/day', noPlayers: 'No players yet', noMine: "You don't own any lots yet", noDeals: 'No deals yet',
     settings: 'Settings', soundOn: '🔇 Sound on', soundOff: '🔊 Sound off', logout: 'Log out', lang: '🌐 Tiếng Việt',
     district: 'Golden Lots · Back Bay', river: 'Charles River',
     shops: ['Coffee', 'Phở', 'Bánh Mì', 'Lobster Roll', 'Chowder', 'Bakery', 'Pizza', 'Boba Tea', 'Nail Salon'],
@@ -237,17 +257,32 @@ const store = {
 const cellPrice = (x, y) => 100 + 50 * (4 - Math.max(Math.abs(x - 4), Math.abs(y - 4)));
 const cellsOf = (x, y, dir) => dir === 'v' ? [[x, y], [x, y + 1]] : [[x, y], [x + 1, y]];
 const sameBlock = (x, y, dir) => { const c = cellsOf(x, y, dir); return Math.floor(c[0][0] / 3) === Math.floor(c[1][0] / 3) && Math.floor(c[0][1] / 3) === Math.floor(c[1][1] / 3); };
-const fmt = n => { n = Number(n); return n >= 1000 ? '$' + (n / 1000).toLocaleString('en-US', { maximumFractionDigits: 2 }) + 'M' : '$' + n + 'K'; };
+const fmt = n => { n = Number(n); return n >= 1000 ? '$' + (n / 1000).toLocaleString('en-US', { maximumFractionDigits: 2 }) + 'M' : '$' + (Number.isInteger(n) ? n : n.toFixed(n < 100 ? 1 : 0)) + 'K'; };
 const lotName = (x, y, dir) => cellsOf(x, y, dir).map(c => COLS[c[0]] + (c[1] + 1)).join('–');
 const esc = s => String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const hashN = s => { let h = 7; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) | 0; return Math.abs(h); };
+
+/* ====== KINH TẾ (giống hệt Code.gs — máy chủ mới là nơi tính thật) ====== */
+const SPEED = 24, DAY_MS = 86400000 / SPEED, CAP_DAYS = 12;
+const RATE = { house: 10, shop: 16, tower: 28 };
+function neighborsOf(l, lots){
+  const mine = {}; cellsOf(l.x, l.y, l.dir).forEach(c => mine[c] = 1);
+  return lots.filter(o => o.id !== l.id && cellsOf(o.x, o.y, o.dir).some(c => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(d => mine[[c[0] + d[0], c[1] + d[1]]])));
+}
+function lotRate(l, lots){
+  const nb = neighborsOf(l, lots), count = k => nb.filter(o => o.kind === k).length;
+  if (l.kind === 'shop') return RATE.shop + 4 * Math.min(4, count('house'));
+  if (l.kind === 'tower') return RATE.tower + 6 * Math.min(3, count('tower'));
+  return RATE.house + 2 * Math.min(3, count('shop'));
+}
 
 /* ====== máy chủ thử (giống luật trong Code.gs) ====== */
 const MOCK_COLORS = ['#e94f37','#3b82f6','#22c55e','#f59e0b','#a855f7','#ec4899','#14b8a6','#f97316'];
 function mockApi(p){
   return new Promise(res => setTimeout(() => {
     const db = store.get('ldv_mock', { users: [], lots: [] });
-    const state = () => ({ ok: true, users: db.users.map(u => ({ username: u.username, money: u.money, color: u.color })), lots: db.lots.slice(), serverTime: Date.now() });
+    if (!db.gameStart) db.gameStart = Date.now();
+    const state = () => ({ ok: true, users: db.users.map(u => ({ username: u.username, money: u.money, color: u.color })), lots: db.lots.slice(), serverTime: Date.now(), gameStart: db.gameStart, speed: SPEED });
     const save = () => store.set('ldv_mock', db);
     const name = String(p.username || '').trim().replace(/\s+/g, ' ');
     const find = () => db.users.find(u => u.username.toLowerCase() === name.toLowerCase());
@@ -278,9 +313,18 @@ function mockApi(p){
       const kind = BUILD[p.kind] ? p.kind : 'house';
       const price = cs.reduce((s, c) => s + cellPrice(c[0], c[1]), 0) + BUILD[kind].cost;
       if (u.money < price) return res(Object.assign(state(), { ok:false, code:'MONEY', price, error:'Không đủ tiền (cần $' + price + 'K)' }));
-      db.lots.push({ id: Math.random().toString(36).slice(2, 10), x: +p.x, y: +p.y, dir, owner: u.username, price, boughtAt: Date.now(), kind });
+      db.lots.push({ id: Math.random().toString(36).slice(2, 10), x: +p.x, y: +p.y, dir, owner: u.username, price, boughtAt: Date.now(), kind, collectedAt: Date.now() });
       u.money -= price; save();
       return res(Object.assign(state(), { bought: { x: +p.x, y: +p.y, dir, price, kind } }));
+    }
+    if (p.action === 'collect'){
+      const u = db.users.find(u => u.username === p.username && u.token === p.token);
+      if (!u) return res({ ok:false, code:'AUTH', error:'Phiên đăng nhập hết hạn, hãy đăng nhập lại' });
+      const now = Date.now(); let total = 0;
+      db.lots.forEach(l => { if (l.owner !== u.username) return;
+        total += lotRate(l, db.lots) * Math.min(CAP_DAYS, Math.max(0, (now - (l.collectedAt || l.boughtAt)) / DAY_MS)); l.collectedAt = now; });
+      const amount = Math.floor(total); u.money += amount; save();
+      return res(Object.assign(state(), { collected: amount }));
     }
     res({ ok:false, code:'BAD_CMD', error:'Lệnh không hợp lệ' });
   }, 200 + Math.random() * 200));
@@ -300,15 +344,19 @@ const S = {
   me: store.get('ldv_me', null),
   users: [], lots: [], known: null,
   sel: null, dir: 'h', kind: 'house',
-  lastSync: 0, busy: false, online: true, showPrice: false
+  lastSync: 0, busy: false, online: true, showPrice: false,
+  offset: 0, gameStart: 0
 };
+const serverNow = () => Date.now() + S.offset;
+const pendingOf = l => lotRate(l, S.lots) * Math.min(CAP_DAYS, Math.max(0, (serverNow() - (l.collectedAt || l.boughtAt)) / DAY_MS));
 const cellOwner = () => { const m = {}; S.lots.forEach(l => cellsOf(l.x, l.y, l.dir).forEach(c => m[c] = l)); return m; };
 const meUser = () => S.me && S.users.find(u => u.username === S.me.username);
 const colorOf = name => (S.users.find(u => u.username === name) || {}).color || '#94a3b8';
 
 function applyState(r){
   if (r && Array.isArray(r.users)) {
-    r.lots.forEach(l => { if (!BUILD[l.kind]) l.kind = 'house'; });
+    r.lots.forEach(l => { if (!BUILD[l.kind]) l.kind = 'house'; if (!l.collectedAt) l.collectedAt = l.boughtAt; });
+    if (r.serverTime) { S.offset = r.serverTime - Date.now(); S.gameStart = r.gameStart || S.gameStart; }
     const fresh = S.known ? r.lots.filter(l => !S.known.has(l.id)).map(l => l.id) : [];
     S.known = new Set(r.lots.map(l => l.id));
     S.users = r.users; S.lots = r.lots; S.lastSync = Date.now(); S.online = true;
@@ -338,7 +386,7 @@ function beep(freqs, dur = .09, type = 'triangle', vol = .06){
     });
   } catch(_){}
 }
-const sfx = { tap: () => beep([700], .05), ok: () => beep([523, 659, 784, 1046], .08), bad: () => beep([220, 160], .14, 'sawtooth', .05) };
+const sfx = { coin: () => beep([988, 1319, 1568, 1976], .06, 'square', .05), tap: () => beep([700], .05), ok: () => beep([523, 659, 784, 1046], .08), bad: () => beep([220, 160], .14, 'sawtooth', .05) };
 
 /* =====================================================================
    THÀNH PHỐ 3D
@@ -624,6 +672,20 @@ const City = (() => {
     sp.renderOrder = 10; sp.scale.set(1.05, 1.25, 1); return sp;
   }
 
+  let coinT = null;
+  function coinTex(){
+    if (coinT) return coinT;
+    const c = document.createElement('canvas'); c.width = c.height = 96; const g = c.getContext('2d');
+    g.fillStyle = '#c98a0b'; g.beginPath(); g.arc(48, 52, 40, 0, 7); g.fill();
+    g.fillStyle = '#fcd34d'; g.beginPath(); g.arc(48, 46, 40, 0, 7); g.fill();
+    g.strokeStyle = '#f59e0b'; g.lineWidth = 5; g.beginPath(); g.arc(48, 46, 30, 0, 7); g.stroke();
+    g.fillStyle = '#92400e'; g.font = '900 44px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('$', 48, 48);
+    return (coinT = new THREE.CanvasTexture(c));
+  }
+  function syncCoins(){
+    const byId = {}; S.lots.forEach(l => byId[l.id] = l);
+    for (const [id, o] of lotObjs) { const c = o.group.userData.coin; if (c) c.visible = !!byId[id] && pendingOf(byId[id]) >= 3; }
+  }
   function buildLot(l, ghost){
     const g = new THREE.Group();
     const op = ghost ? { transparent: true, opacity: .55 } : {};
@@ -668,6 +730,11 @@ const City = (() => {
       g.traverse(o => { if (o.isMesh) o.userData.lotId = l.id; });
       const av = avatarSprite(l.owner, col, S.me && l.owner === S.me.username);
       av.position.set(cx, top + .7, cz); av.userData.isAvatar = true; g.add(av);
+      if (S.me && l.owner === S.me.username) {
+        const coin = new THREE.Sprite(new THREE.SpriteMaterial({ map: coinTex(), depthTest: false }));
+        coin.renderOrder = 11; coin.scale.set(.55, .55, 1); coin.position.set(cx + .5, top + 1.1, cz); coin.visible = false;
+        coin.userData.baseY = top + 1.1; g.add(coin); g.userData.coin = coin;
+      }
     }
     return g;
   }
@@ -810,6 +877,7 @@ const City = (() => {
       else { const s = Math.max(.02, easeBack(k)); o.group.scale.set(1, s, 1); }
     }
     boats.forEach(b => { b.g.position.x += b.v * dt; if (b.g.position.x > span1) b.g.position.x = span0; b.g.rotation.z = Math.sin(now / 600 + b.v * 9) * .05; });
+    for (const o of lotObjs.values()) { const c = o.group.userData.coin; if (c && c.visible) c.position.y = c.userData.baseY + Math.abs(Math.sin(now / 300 + o.group.id)) * .25; }
     if (ghostObj) ghostObj.position.y = Math.sin(now / 250) * .03 + .03;
     selMat.opacity = .35 + Math.sin(now / 300) * .12;
     renderer.render(scene, camera);
@@ -822,7 +890,7 @@ const City = (() => {
   $('loading').classList.add('hidden');
   cityReady = true;
   return {
-    syncLots, syncSelection, pickCell, resize,
+    syncLots, syncSelection, pickCell, resize, syncCoins,
     relabel(){ labels.forEach(drawLabel); },
     rebuild(){ for (const o of lotObjs.values()) district.remove(o.group); lotObjs.clear(); syncLots(); },
     home(){ cam.tx = 0; cam.tz = 1; cam.yaw = Math.PI / 4; fitDistance(); updateCamera(); },
@@ -886,26 +954,59 @@ async function buy(){
   renderUI();
 }
 
+/* ====== thu tiền ====== */
+async function collect(){
+  if (!S.me || S.busy) return;
+  S.busy = true; renderUI();
+  try {
+    const r = await api({ action: 'collect', username: S.me.username, token: S.me.token });
+    S.busy = false;
+    if (r.ok) { applyState(r); if (r.collected > 0) { toast(t('collected', { money: fmt(r.collected) }), 'good'); sfx.coin(); } else toast(t('nothing')); }
+    else { if (r.code === 'AUTH') logout(); toast(errText(r), 'bad'); sfx.bad(); }
+  } catch (e) { S.busy = false; toast(t('lost'), 'bad'); }
+  renderUI();
+}
+
 /* ====== giao diện ====== */
 function renderUI(){
   const me = meUser();
   $('money').textContent = me ? fmt(me.money) : '—';
   const myLots = S.me ? S.lots.filter(l => l.owner === S.me.username) : [];
-  $('title').textContent = t(myLots.length >= 3 ? 't2' : myLots.length ? 't1' : 't0') + ' · ' + t('lots', { n: myLots.length });
+  const myInc = myLots.reduce((a, l) => a + lotRate(l, S.lots), 0);
+  $('title').textContent = t(myLots.length >= 3 ? 't2' : myLots.length ? 't1' : 't0') + ' · ' + (myLots.length ? '📈 ' + t('perDay', { money: fmt(myInc) }) : t('lots', { n: 0 }));
+  // đồng hồ game theo máy chủ
+  if (S.gameStart) {
+    const gd = new Date(Date.UTC(2026, 0, 1) + (serverNow() - S.gameStart) * SPEED);
+    const dd = String(gd.getUTCDate()).padStart(2, '0'), mm = String(gd.getUTCMonth() + 1).padStart(2, '0');
+    const hh = String(gd.getUTCHours()).padStart(2, '0'), mi = String(gd.getUTCMinutes()).padStart(2, '0');
+    const dayIdx = Math.floor((serverNow() - S.gameStart) / DAY_MS), winter = [11, 0, 1].includes(gd.getUTCMonth());
+    const wx = (winter ? ['sunny', 'cloudy', 'snow', 'snow'] : ['sunny', 'sunny', 'cloudy', 'rain'])[hashN('w' + dayIdx) % 4];
+    $('clock').textContent = `📅 ${LANG === 'vi' ? dd + '/' + mm : mm + '/' + dd}/${gd.getUTCFullYear()} · ${hh}:${mi} · ${t(wx)}`;
+  }
+  // tiền chờ thu
+  const pend = myLots.reduce((a, l) => a + pendingOf(l), 0);
+  const isFull = myLots.length && myLots.every(l => (serverNow() - l.collectedAt) / DAY_MS >= CAP_DAYS);
+  $('collectBtn').classList.toggle('hidden', !S.me || !myLots.length);
+  if (S.me && myLots.length) $('hint').classList.add('hidden');
+  $('collectAmt').textContent = '+' + fmt(Math.floor(pend * 10) / 10);
+  $('collectSub').textContent = isFull ? t('full') : t('collect');
+  $('collectBtn').disabled = pend < 1 || S.busy;
+  if (cityReady) City.syncCoins();
   $('meName').textContent = S.me ? S.me.username : t('profile');
-  $('country').textContent = t('country');
   $('langBtn').textContent = LANG === 'vi' ? 'EN' : 'VI'; $('langBtn2').textContent = t('lang');
   const ago = S.lastSync ? Math.round((Date.now() - S.lastSync) / 1000) : null;
-  $('online').textContent = !S.online ? t('offline') : ago == null ? t('connecting') : `${t('players', { n: S.users.length })} · ${ago < 3 ? t('justNow') : ago + 's'}`;
+  $('online').textContent = !S.online ? t('offline') : ago == null ? t('connecting') : t('players', { n: S.users.length }) + (ago > 15 ? ' · ' + ago + 's' : '');
   $('syncDot').classList.toggle('off', !S.online);
   const st = selStatus();
   $('rotBtn').textContent = t(S.dir === 'h' ? 'wide' : 'tall');
   if (S.sel && st.lot) {
     $('selTitle').textContent = t('ownedTitle', { icon: BUILD[st.lot.kind].icon, kind: BUILD[st.lot.kind].name, owner: st.lot.owner });
-    $('selSub').textContent = t('ownedSub', { lot: lotName(st.lot.x, st.lot.y, st.lot.dir), price: fmt(st.lot.price) });
+    const nb = neighborsOf(st.lot, S.lots).length;
+    $('selSub').textContent = t('ownedSub', { lot: lotName(st.lot.x, st.lot.y, st.lot.dir), price: fmt(st.lot.price) }) + ' · ' + t('perDay', { money: fmt(lotRate(st.lot, S.lots)) }) + (nb ? ' (' + t('nbBonus', { n: nb }) + ')' : '');
   } else if (S.sel) {
     $('selTitle').textContent = t('lotTitle', { lot: lotName(S.sel.x, S.sel.y, S.dir), price: fmt(st.price) });
-    $('selSub').textContent = st.ok ? t('free', { kind: BUILD[S.kind].name }) : st.why;
+    const proj = lotRate({ id: '_p', x: S.sel.x, y: S.sel.y, dir: S.dir, kind: S.kind }, S.lots);
+    $('selSub').textContent = st.ok ? t('projected', { money: fmt(proj) }) + ' · ' + t('free', { kind: BUILD[S.kind].name }) : st.why;
   } else {
     $('selTitle').textContent = t('pickTitle');
     $('selSub').textContent = t('pickSub');
@@ -923,9 +1024,9 @@ function fillPop(kind){
   if (kind === 'rank') {
     const rows = S.users.map(u => {
       const lots = S.lots.filter(l => l.owner === u.username);
-      return { u, n: lots.length, total: u.money + lots.reduce((s, l) => s + l.price, 0) };
+      return { u, n: lots.length, inc: lots.reduce((s, l) => s + lotRate(l, S.lots), 0), total: u.money + lots.reduce((s, l) => s + l.price, 0) };
     }).sort((a, b) => b.total - a.total);
-    html = rows.map((r, i) => `<div class="item"><b>${i + 1}</b>${av(r.u.username)}<span>${esc(r.u.username)}${S.me && r.u.username === S.me.username ? ' ' + t('you') : ''}<br><small style="color:var(--muted)">${t('rankSub', { n: r.n, money: fmt(r.u.money) })}</small></span><span class="r">${fmt(r.total)}</span></div>`).join('') || `<div class="item">${t('noPlayers')}</div>`;
+    html = rows.map((r, i) => `<div class="item"><b>${i + 1}</b>${av(r.u.username)}<span>${esc(r.u.username)}${S.me && r.u.username === S.me.username ? ' ' + t('you') : ''}<br><small style="color:var(--muted)">${t('rankSub', { n: r.n, money: fmt(r.u.money), inc: fmt(r.inc) })}</small></span><span class="r">${fmt(r.total)}</span></div>`).join('') || `<div class="item">${t('noPlayers')}</div>`;
   } else {
     const lots = S.lots.filter(l => kind === 'log' || (S.me && l.owner === S.me.username)).sort((a, b) => b.boughtAt - a.boughtAt);
     html = lots.map(l => `<div class="item" data-goto="${l.id}">${av(l.owner)}<span>${BUILD[l.kind].icon} ${esc(l.owner)} · <b>${lotName(l.x, l.y, l.dir)}</b><br><small style="color:var(--muted)">${BUILD[l.kind].name} · ${new Date(l.boughtAt).toLocaleString(LANG === 'vi' ? 'vi-VN' : 'en-US', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}</small></span><span class="r">${fmt(l.price)}</span></div>`).join('')
@@ -947,6 +1048,13 @@ function showPop(kind){
   d.querySelector('h2 button').onclick = closePop;
   document.body.appendChild(d); fillPop(kind);
 }
+function showHowto(){
+  closePop(); openPop = 'menu';
+  const d = document.createElement('div'); d.className = 'pop'; d.id = 'pop';
+  d.innerHTML = `<div class="card"><h2>${t('howto')}<button aria-label="Close">✕</button></h2><div class="list" style="line-height:1.35">${t('howtoBody')}</div></div>`;
+  d.addEventListener('click', e => { if (e.target === d) closePop(); });
+  document.body.appendChild(d); d.querySelector('h2 button').onclick = closePop;
+}
 function closePop(){ const p = $('pop'); if (p) p.remove(); openPop = null; }
 document.querySelectorAll('[data-pop]').forEach(b => b.addEventListener('click', () => showPop(b.dataset.pop)));
 
@@ -959,6 +1067,7 @@ let hintGone = false;
 function hideHint(){ if (hintGone) return; hintGone = true; setTimeout(() => $('hint').style.opacity = 0, 1500); setTimeout(() => $('hint').classList.add('hidden'), 2000); }
 
 $('rotBtn').addEventListener('click', rotate);
+$('collectBtn').addEventListener('click', collect);
 $('buyBtn').addEventListener('click', buy);
 document.querySelectorAll('.kind').forEach(b => b.addEventListener('click', () => { S.kind = b.dataset.k; sfx.tap(); City.syncSelection(); renderUI(); }));
 $('priceBtn').addEventListener('click', () => { City.setPrice(!S.showPrice); $('priceBtn').classList.toggle('on', S.showPrice); });
@@ -967,6 +1076,7 @@ function showMenu(){
   closePop();
   const d = document.createElement('div'); d.className = 'pop'; d.id = 'pop';
   d.innerHTML = `<div class="card"><h2>👤 ${S.me ? esc(S.me.username) : t('settings')}<button aria-label="Close">✕</button></h2>
+    <button class="btn rot" id="mHow" style="margin-bottom:8px">${t('howto')}</button>
     <button class="btn rot" id="mLang" style="margin-bottom:8px">${t('lang')}</button>
     <button class="btn rot" id="mMute" style="margin-bottom:8px">${t(muted ? 'soundOn' : 'soundOff')}</button>
     <button class="btn rot" id="mOut">${t('logout')}</button></div>`;
@@ -976,6 +1086,7 @@ function showMenu(){
   $('mMute').onclick = () => { muted = !muted; store.set('ldv_muted', muted); closePop(); };
   $('mOut').onclick = () => { closePop(); logout(); };
   $('mLang').onclick = () => { closePop(); setLang(LANG === 'vi' ? 'en' : 'vi'); };
+  $('mHow').onclick = showHowto;
 }
 $('menuBtn').addEventListener('click', showMenu);
 $('langBtn').addEventListener('click', () => setLang(LANG === 'vi' ? 'en' : 'vi'));
