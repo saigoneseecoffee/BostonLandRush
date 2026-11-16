@@ -162,7 +162,7 @@ var WORLD = (function () {
 
 /* ===== KINH TẾ ===== */
 var ECON = (function () {
-  var SPEED = 24, DAY_MS = 86400000 / SPEED, CAP_DAYS = 12, MAX_LEVEL = 5;
+  var SPEED = 48, DAY_MS = 86400000 / SPEED, CAP_DAYS = 16, MAX_LEVEL = 5;   // 30 phút thật = 1 ngày game; cộng dồn tối đa 16 ngày (8 giờ thật)
   // type: res (cho thuê) / biz (kinh doanh). cost: tiền xây ($K). base: thu nhập gốc/ngày ($K). units: dân (nghìn) mỗi cấp
   var M = {
     single:     { type: 'res', cost: 120, base: 7,  units: .25, icon: '🏠' },

@@ -305,7 +305,7 @@ var WORLD = (function () {
 
 /* ===== KINH TẾ ===== */
 var ECON = (function () {
-  var SPEED = 24, DAY_MS = 86400000 / SPEED, CAP_DAYS = 12, MAX_LEVEL = 5;
+  var SPEED = 48, DAY_MS = 86400000 / SPEED, CAP_DAYS = 16, MAX_LEVEL = 5;   // 30 phút thật = 1 ngày game; cộng dồn tối đa 16 ngày (8 giờ thật)
   // type: res (cho thuê) / biz (kinh doanh). cost: tiền xây ($K). base: thu nhập gốc/ngày ($K). units: dân (nghìn) mỗi cấp
   var M = {
     single:     { type: 'res', cost: 120, base: 7,  units: .25, icon: '🏠' },
@@ -423,7 +423,7 @@ const I18N = {
     collect: 'Thu tiền', collected: 'Đã thu {money}!', nothing: 'Chưa có tiền để thu', full: 'Kho đầy — thu ngay!',
     sunny: '☀️ Nắng', cloudy: '⛅ Nhiều mây', rain: '🌧️ Mưa', snow: '❄️ Tuyết',
     howto: '❓ Cách chơi',
-    howtoBody: '<p>🗺️ Bản đồ Greater Boston khoảng 35 dặm quanh trung tâm. <b>Nhà có sẵn, lô trống và địa danh đều mua được.</b></p><p>🏗️ Trên lô của mình, bấm <b>Xây / Đổi</b> để chọn mẫu nhà cho thuê hoặc loại hình kinh doanh, bấm <b>Nâng cấp</b> để lên tới cấp 5.</p><p>💡 Thu nhập tùy <b>loại hình + vị trí</b>: mỗi thị trấn có đặc điểm riêng (giàu, sinh viên, du lịch, văn phòng, cộng đồng Việt, gần biển…). Mở cùng loại tiệm sát nhau trong một thị trấn thì phải chia khách. Hãy tự khám phá!</p><p>👥 Xây và nâng cấp nhà ở làm <b>dân số thị trấn tăng</b> → đất lên giá, tiệm buôn bán đông hơn.</p><p>⏱️ Thời gian do <b>máy chủ</b> quyết định: 1 giờ thật = 1 ngày game. Tiền cộng dồn tối đa 12 ngày — nhớ bấm <b>💰 Thu tiền</b>.</p>',
+    howtoBody: '<p>🗺️ Bản đồ Greater Boston khoảng 35 dặm quanh trung tâm. <b>Nhà có sẵn, lô trống và địa danh đều mua được.</b></p><p>🏗️ Trên lô của mình, bấm <b>Xây / Đổi</b> để chọn mẫu nhà cho thuê hoặc loại hình kinh doanh, bấm <b>Nâng cấp</b> để lên tới cấp 5.</p><p>💡 Thu nhập tùy <b>loại hình + vị trí</b>: mỗi thị trấn có đặc điểm riêng (giàu, sinh viên, du lịch, văn phòng, cộng đồng Việt, gần biển…). Mở cùng loại tiệm sát nhau trong một thị trấn thì phải chia khách. Hãy tự khám phá!</p><p>👥 Xây và nâng cấp nhà ở làm <b>dân số thị trấn tăng</b> → đất lên giá, tiệm buôn bán đông hơn.</p><p>⏱️ Thời gian do <b>máy chủ</b> quyết định: 30 phút thật = 1 ngày game. Tiền cộng dồn tối đa 16 ngày (8 tiếng thật) — nhớ bấm <b>💰 Thu tiền</b>.</p>',
     shops: ['Cà Phê', 'Phở', 'Tiệm Bánh', 'Tạp Hóa', 'Tiệm Nail', 'Gym', 'Hải Sản', 'Khách Sạn', 'Văn Phòng'],
     models: { empty: 'Đất trống', single: 'Nhà đơn lập', triple: 'Triple-decker', brownstone: 'Brownstone', condo: 'Chung cư cao tầng', cafe: 'Quán cà phê', pho: 'Quán phở', bakery: 'Tiệm bánh', grocery: 'Tạp hóa', nail: 'Tiệm nail', gym: 'Phòng gym', seafood: 'Nhà hàng hải sản', hotel: 'Khách sạn', office: 'Tòa văn phòng', landmark: 'Địa danh' },
     err: { NAME_LEN: 'Tên phải dài 2–16 ký tự', PASS_LEN: 'Mật khẩu ít nhất 4 ký tự', NAME_TAKEN: 'Tên này đã có người dùng',
@@ -457,7 +457,7 @@ const I18N = {
     collect: 'Collect', collected: 'Collected {money}!', nothing: 'Nothing to collect yet', full: 'Storage full — collect now!',
     sunny: '☀️ Sunny', cloudy: '⛅ Cloudy', rain: '🌧️ Rain', snow: '❄️ Snow',
     howto: '❓ How to play',
-    howtoBody: '<p>🗺️ Greater Boston, about 35 miles around downtown. <b>Existing homes, empty lots and landmarks are all for sale.</b></p><p>🏗️ On your own lot, tap <b>Build / Change</b> to pick a rental home or a business, and <b>Upgrade</b> up to level 5.</p><p>💡 Income depends on <b>business type + location</b>: every town has its own character (wealth, students, tourists, offices, Vietnamese community, waterfront…). Same-type shops in one town split the customers. Discover what works!</p><p>👥 Building and upgrading homes <b>grows a town\'s population</b> → land gets pricier and shops get busier.</p><p>⏱️ Time is set by the <b>server</b>: 1 real hour = 1 game day. Income piles up for up to 12 days — tap <b>💰 Collect</b>.</p>',
+    howtoBody: '<p>🗺️ Greater Boston, about 35 miles around downtown. <b>Existing homes, empty lots and landmarks are all for sale.</b></p><p>🏗️ On your own lot, tap <b>Build / Change</b> to pick a rental home or a business, and <b>Upgrade</b> up to level 5.</p><p>💡 Income depends on <b>business type + location</b>: every town has its own character (wealth, students, tourists, offices, Vietnamese community, waterfront…). Same-type shops in one town split the customers. Discover what works!</p><p>👥 Building and upgrading homes <b>grows a town\'s population</b> → land gets pricier and shops get busier.</p><p>⏱️ Time is set by the <b>server</b>: 30 real minutes = 1 game day. Income piles up for up to 16 days (8 real hours) — tap <b>💰 Collect</b>.</p>',
     shops: ['Coffee', 'Phở', 'Bakery', 'Grocery', 'Nail Salon', 'Gym', 'Seafood', 'Hotel', 'Offices'],
     models: { empty: 'Empty lot', single: 'Single-family', triple: 'Triple-decker', brownstone: 'Brownstone', condo: 'Condo tower', cafe: 'Coffee shop', pho: 'Phở restaurant', bakery: 'Bakery', grocery: 'Grocery', nail: 'Nail salon', gym: 'Gym', seafood: 'Seafood restaurant', hotel: 'Hotel', office: 'Office tower', landmark: 'Landmark' },
     err: { NAME_LEN: 'Name must be 2–16 characters', PASS_LEN: 'Password needs 4+ characters', NAME_TAKEN: 'That name is taken',
