@@ -393,7 +393,7 @@ var ECON = (function () {
 /* ====== CẤU HÌNH ====== */
 // Link Web app của Apps Script. Để trống = chế độ thử (offline, lưu trong máy).
 const API_URL = 'https://script.google.com/macros/s/AKfycbzHR2vM3RFjRDkZDAW1zsxBZ54GORqvYGLdybxvupMVNFAafcfFTAJEXqyXJZtCUqleCg/exec';
-const START_MONEY = 1500, POLL_MS = 8000;
+const START_MONEY = 1500, POLL_MS = 2000;
 const M = ECON.M;
 
 /* ====== NGÔN NGỮ / LANGUAGE ====== */
@@ -597,10 +597,13 @@ function applyState(r){
   renderUI();
   if (openPop && openPop !== 'static') fillPop(openPop);
 }
+let polling = false;   // không gửi chồng yêu cầu khi máy chủ trả lời chậm hơn 2 giây
 async function refresh(){
-  if (S.busy) return;
-  try { applyState(await api({ action: 'state' })); }
+  if (S.busy || polling) return;
+  polling = true;
+  try { const r = await api({ action: 'state' }); if (!S.busy) applyState(r); }
   catch (e) { S.online = false; renderUI(); }
+  polling = false;
 }
 
 /* ====== âm thanh ====== */
