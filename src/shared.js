@@ -145,6 +145,41 @@ var WORLD = (function () {
       }
     });
   });
+  /* ===== Giai đoạn 2: khu phố phụ lấp đầy quanh mỗi thị trấn =====
+     Thêm SAU giai đoạn 1 nên ID và vị trí các lô cũ không đổi. ID dạng <town>F<k>-<ô>. */
+  T.forEach(function (t) {
+    var town = towns.filter(function (x) { return x.code === t[0]; })[0];
+    var extra = Math.round(3 + t[6].pop / 4.5), placed = 0;
+    var ci = Math.round(town.x / P - 0.34), cj = Math.round(town.z / P - 0.34);
+    for (var r = 1; r < 12 && placed < extra; r++) {
+      var ring = [];
+      for (var di = -r; di <= r; di++) for (var dj = -r; dj <= r; dj++) if (Math.max(Math.abs(di), Math.abs(dj)) === r) ring.push([di, dj]);
+      var rr = rnd(town.code + 'ring' + r);
+      ring.sort(function (a, b) { return (a[0] * a[0] + a[1] * a[1]) - (b[0] * b[0] + b[1] * b[1]) || rr() - 0.5; });
+      for (var q = 0; q < ring.length && placed < extra; q++) {
+        var i = ci + ring[q][0], j = cj + ring[q][1], cx = i * P + 1.5, cz = j * P + 1.5;
+        if (used[key(i, j)] || inWater(cx, cz) || inWater(cx + 1.5, cz) || inWater(cx, cz + 1.5) || inWater(cx + 1.5, cz + 1.5)) continue;
+        // chỉ đặt sát khu đã có để phố liền mạch
+        if (!(used[key(i + 1, j)] || used[key(i - 1, j)] || used[key(i, j + 1)] || used[key(i, j - 1)])) continue;
+        used[key(i, j)] = town.code;
+        var k = placed, b = { town: town.code, idx: town.blocks.length, i: i, j: j, x0: i * P, z0: j * P, fill: true };
+        town.blocks.push(b); blocks.push(b); placed++;
+        var core = distCenter(b.x0, b.z0) < 14;
+        for (var c = 0; c < 9; c++) {
+          var id = town.code + 'F' + k + '-' + c, r2 = rnd(id);
+          var px = b.x0 + (c % 3) + 0.5, pz = b.z0 + Math.floor(c / 3) + 0.5, npc = null;
+          if (r2() > (core ? 0.14 : 0.28)) {
+            var isBiz = r2() < (core ? 0.3 : 0.16);
+            var model = isBiz ? NPC_BIZ[Math.floor(r2() * NPC_BIZ.length)] : (core ? NPC_RES_CORE : NPC_RES_SUB)[Math.floor(r2() * 4)];
+            if (model === 'seafood' && !nearWater(px, pz)) model = 'bakery';
+            npc = { model: model, level: 1 + Math.floor(r2() * (core ? 3 : 2)) };
+          }
+          var pp = { id: id, town: town.code, block: b, cell: c, x: px, z: pz, w: 1, npc: npc, wf: nearWater(px, pz) ? 1 : 0, seed: r2() };
+          parcels.push(pp); byId[id] = pp;
+        }
+      }
+    }
+  });
   var townByCode = {}; towns.forEach(function (t) { townByCode[t.code] = t; });
   return { towns: towns, townByCode: townByCode, blocks: blocks, parcels: parcels, byId: byId, coastW: coastW, coastX: coastX, inWater: inWater, world: world, P: P, hash: hash, rnd: rnd };
 })();

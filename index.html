@@ -299,6 +299,41 @@ var WORLD = (function () {
       }
     });
   });
+  /* ===== Giai đoạn 2: khu phố phụ lấp đầy quanh mỗi thị trấn =====
+     Thêm SAU giai đoạn 1 nên ID và vị trí các lô cũ không đổi. ID dạng <town>F<k>-<ô>. */
+  T.forEach(function (t) {
+    var town = towns.filter(function (x) { return x.code === t[0]; })[0];
+    var extra = Math.round(3 + t[6].pop / 4.5), placed = 0;
+    var ci = Math.round(town.x / P - 0.34), cj = Math.round(town.z / P - 0.34);
+    for (var r = 1; r < 12 && placed < extra; r++) {
+      var ring = [];
+      for (var di = -r; di <= r; di++) for (var dj = -r; dj <= r; dj++) if (Math.max(Math.abs(di), Math.abs(dj)) === r) ring.push([di, dj]);
+      var rr = rnd(town.code + 'ring' + r);
+      ring.sort(function (a, b) { return (a[0] * a[0] + a[1] * a[1]) - (b[0] * b[0] + b[1] * b[1]) || rr() - 0.5; });
+      for (var q = 0; q < ring.length && placed < extra; q++) {
+        var i = ci + ring[q][0], j = cj + ring[q][1], cx = i * P + 1.5, cz = j * P + 1.5;
+        if (used[key(i, j)] || inWater(cx, cz) || inWater(cx + 1.5, cz) || inWater(cx, cz + 1.5) || inWater(cx + 1.5, cz + 1.5)) continue;
+        // chỉ đặt sát khu đã có để phố liền mạch
+        if (!(used[key(i + 1, j)] || used[key(i - 1, j)] || used[key(i, j + 1)] || used[key(i, j - 1)])) continue;
+        used[key(i, j)] = town.code;
+        var k = placed, b = { town: town.code, idx: town.blocks.length, i: i, j: j, x0: i * P, z0: j * P, fill: true };
+        town.blocks.push(b); blocks.push(b); placed++;
+        var core = distCenter(b.x0, b.z0) < 14;
+        for (var c = 0; c < 9; c++) {
+          var id = town.code + 'F' + k + '-' + c, r2 = rnd(id);
+          var px = b.x0 + (c % 3) + 0.5, pz = b.z0 + Math.floor(c / 3) + 0.5, npc = null;
+          if (r2() > (core ? 0.14 : 0.28)) {
+            var isBiz = r2() < (core ? 0.3 : 0.16);
+            var model = isBiz ? NPC_BIZ[Math.floor(r2() * NPC_BIZ.length)] : (core ? NPC_RES_CORE : NPC_RES_SUB)[Math.floor(r2() * 4)];
+            if (model === 'seafood' && !nearWater(px, pz)) model = 'bakery';
+            npc = { model: model, level: 1 + Math.floor(r2() * (core ? 3 : 2)) };
+          }
+          var pp = { id: id, town: town.code, block: b, cell: c, x: px, z: pz, w: 1, npc: npc, wf: nearWater(px, pz) ? 1 : 0, seed: r2() };
+          parcels.push(pp); byId[id] = pp;
+        }
+      }
+    }
+  });
   var townByCode = {}; towns.forEach(function (t) { townByCode[t.code] = t; });
   return { towns: towns, townByCode: townByCode, blocks: blocks, parcels: parcels, byId: byId, coastW: coastW, coastX: coastX, inWater: inWater, world: world, P: P, hash: hash, rnd: rnd };
 })();
@@ -475,7 +510,7 @@ function t(key, vars){
 }
 const modelName = m => t('models')[m] || m;
 const townName = code => { const tw = WORLD.townByCode[code]; return tw ? tw[LANG] : code; };
-const parcelName = p => p.lm ? p.lm[LANG] : townName(p.town) + ' #' + p.id.split('-')[0].replace(/^[A-Z]+/, '') + '-' + (p.cell + 1);
+const parcelName = p => p.lm ? p.lm[LANG] : townName(p.town) + ' #' + (p.block.idx + 1) + '-' + (p.cell + 1);
 function errText(r){
   const e = r && r.code && I18N[LANG].err[r.code];
   return e ? e.replace('{owner}', r.owner || '').replace('{price}', r.price != null ? fmt(r.price) : '') : (r && r.error) || t('cantBuy');
@@ -690,26 +725,47 @@ const City = (() => {
   ground.rotation.x = -Math.PI / 2; ground.position.y = -.03; ground.receiveShadow = true; world.add(ground);
   // biển: đa giác từ bờ biển kéo ra phía đông
   const cw = WORLD.coastW;
-  const sea = new THREE.Shape();
-  sea.moveTo(cw[0][0], -cw[0][1] - 300); sea.lineTo(cw[0][0], -cw[0][1]);
-  cw.forEach(p => sea.lineTo(p[0], -p[1]));
-  const last = cw[cw.length - 1]; sea.lineTo(last[0], -last[1] + 300); sea.lineTo(500, -last[1] + 300); sea.lineTo(500, -cw[0][1] - 300);
-  const seaMesh = new THREE.Mesh(new THREE.ShapeGeometry(sea), Mt('#9fd3e6', { roughness: .35 }));
-  seaMesh.rotation.x = -Math.PI / 2; seaMesh.position.y = .01; world.add(seaMesh);
+  // biển: dải từ đường bờ biển kéo sang đông (lưới đơn điệu theo z nên không bị lỗi tam giác hóa)
+  const seaPos = [], seaIdx = [];
+  for (let z = -320, k = 0; z <= 320; z += 0.5, k++) {
+    seaPos.push(WORLD.coastX(z), .01, z, 420, .01, z);
+    if (k) { const a = (k - 1) * 2; seaIdx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+  }
+  const seaGeo = new THREE.BufferGeometry(); seaGeo.setAttribute('position', new THREE.Float32BufferAttribute(seaPos, 3)); seaGeo.setIndex(seaIdx); seaGeo.computeVertexNormals();
+  const seaMesh = new THREE.Mesh(seaGeo, Mt('#9fd3e6', { roughness: .35, side: THREE.DoubleSide })); world.add(seaMesh);
   const beach = new THREE.Line(new THREE.BufferGeometry().setFromPoints(cw.map(p => new THREE.Vector3(p[0], .03, p[1]))), new THREE.LineBasicMaterial({ color: '#efe3b8' }));
   world.add(beach);
   // dải phẳng nối các điểm (sông, đường)
-  function strip(points, width, color, y){
-    const pos = [], idx = [];
+  function strip(points, width, color, y, mat, uvScale = 1){
+    const pos = [], idx = [], uv = []; let run = 0;
     points.forEach((p, i) => {
       const a = points[Math.max(0, i - 1)], b = points[Math.min(points.length - 1, i + 1)];
       let dx = b[0] - a[0], dz = b[1] - a[1]; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+      if (i) run += Math.hypot(p[0] - points[i - 1][0], p[1] - points[i - 1][1]);
       pos.push(p[0] - dz * width / 2, y, p[1] + dx * width / 2, p[0] + dz * width / 2, y, p[1] - dx * width / 2);
+      uv.push(0, run / uvScale, 1, run / uvScale);
       if (i) { const k = i * 2; idx.push(k - 2, k - 1, k, k - 1, k + 1, k); }
     });
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
-    const m = new THREE.Mesh(g, Mt(color, { side: THREE.DoubleSide })); m.receiveShadow = true; world.add(m); return m;
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+    const m = new THREE.Mesh(g, mat || Mt(color, { side: THREE.DoubleSide })); m.receiveShadow = true; world.add(m); return m;
   }
+  /* kết cấu mặt đường: cao tốc có vạch trắng 2 bên + vạch vàng giữa; đường nối có vạch vàng đứt */
+  function roadMat(kind){
+    const c = document.createElement('canvas'); c.width = 64; c.height = 128; const g = c.getContext('2d');
+    g.fillStyle = kind === 'hw' ? '#7b828c' : '#959ba3'; g.fillRect(0, 0, 64, 128);
+    if (kind === 'hw') {
+      g.fillStyle = '#c9ced4'; g.fillRect(0, 0, 4, 128); g.fillRect(60, 0, 4, 128);
+      g.fillStyle = '#ffffff'; g.fillRect(6, 0, 3, 128); g.fillRect(55, 0, 3, 128);
+      g.fillStyle = '#f6d860'; g.fillRect(29.5, 0, 2, 128); g.fillRect(32.5, 0, 2, 128);
+      g.fillStyle = 'rgba(255,255,255,.85)'; g.fillRect(17, 10, 2, 44); g.fillRect(45, 10, 2, 44); g.fillRect(17, 74, 2, 44); g.fillRect(45, 74, 2, 44);
+    } else {
+      g.fillStyle = '#d9dcd2'; g.fillRect(0, 0, 3, 128); g.fillRect(61, 0, 3, 128);
+      g.fillStyle = '#f6d860'; g.fillRect(30, 8, 4, 48); g.fillRect(30, 72, 4, 48);
+    }
+    const tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.anisotropy = 4;
+    return new THREE.MeshStandardMaterial({ map: tx, roughness: .95, side: THREE.DoubleSide });
+  }
+  const HW_MAT = roadMat('hw'), LOCAL_MAT = roadMat('local');
   const W = (lat, lon) => WORLD.world(lat, lon);
   // sông Charles
   strip([W(42.37, -71.26), W(42.365, -71.21), W(42.36, -71.17), W(42.365, -71.13), W(42.355, -71.10), W(42.355, -71.075), W(42.367, -71.06), W(42.37, -71.045)], 1.1, '#9fd3e6', .015);
@@ -718,10 +774,22 @@ const City = (() => {
   const HW = [['DT', 'SO', 'ME', 'WO', 'AN', 'LA'], ['DT', 'BB', 'AL', 'NW', 'WE', 'NA', 'FR', 'MB'], ['DO', 'QU', 'BT', 'BK'], ['BT', 'WY', 'SW', 'HI', 'DX'],
     ['QU', 'DE', 'ND', 'WA', 'LX', 'BU', 'WO', 'LY', 'SA', 'GL'], ['DT', 'CH', 'MA', 'RV', 'LY'], ['BU', 'LO', 'AN'], ['FR', 'NO', 'DE'], ['DT', 'SE', 'DO'], ['CA', 'WA'], ['LO', 'MB']];
   const highways = [];
+  const linked = {};
   HW.forEach(path => {
     const pts = path.map(tc);
-    strip(pts, .9, '#a3a9b1', .02);
+    strip(pts, 1.7, '', .03, HW_MAT, 3.4);
     highways.push(pts);
+    for (let i = 1; i < path.length; i++) linked[[path[i - 1], path[i]].sort().join()] = 1;
+  });
+  // đường nối: mỗi thị trấn nối tới 2 thị trấn gần nhất (bỏ qua nếu đã có cao tốc, hoặc cắt qua biển)
+  WORLD.towns.forEach(a => {
+    WORLD.towns.filter(b => b !== a).map(b => [b, Math.hypot(b.x - a.x, b.z - a.z)]).sort((p, q) => p[1] - q[1]).slice(0, 2).forEach(([b]) => {
+      const k = [a.code, b.code].sort().join(); if (linked[k]) return; linked[k] = 1;
+      const mx = (a.x + b.x) / 2 + (b.z - a.z) * .08, mz = (a.z + b.z) / 2 - (b.x - a.x) * .08;
+      if (WORLD.inWater(mx, mz)) return;
+      strip([[a.x, a.z], [mx, mz], [b.x, b.z]], 1.05, '', .025, LOCAL_MAT, 2);
+      highways.push([[a.x, a.z], [mx, mz], [b.x, b.z]]);
+    });
   });
 
   /* ---------- khu phố + lô đất (instancing) ---------- */
@@ -802,17 +870,39 @@ const City = (() => {
     else { [bodyI, roofI, capI].forEach(m => { const sv = m.userData.saved && m.userData.saved[i]; if (sv) { m.setMatrixAt(i, sv); m.instanceMatrix.needsUpdate = true; } }); }
   }
 
-  /* cây: rải ở nông thôn + lô trống */
+  /* vùng quê: ruộng, hồ, rừng — tránh khu phố và biển */
+  const blkSet = new Set(blk.map(b => b.i + ',' + b.j));
+  const freeAt = (x, z, pad = 0) => !WORLD.inWater(x, z) && !WORLD.inWater(x + pad, z) && !WORLD.inWater(x, z + pad) && !WORLD.inWater(x + pad, z + pad) && !blkSet.has(Math.floor((x - pad) / WORLD.P) + ',' + Math.floor((z - pad) / WORLD.P)) && !blkSet.has(Math.floor((x + pad) / WORLD.P) + ',' + Math.floor((z + pad) / WORLD.P));
+  const fr = WORLD.rnd('farms'), farms = [];
+  for (let k = 0; k < 2600 && farms.length < 420; k++) {
+    const tw = WORLD.towns[Math.floor(fr() * WORLD.towns.length)], ang = fr() * Math.PI * 2, d = 7 + fr() * 16;
+    const x = tw.x + Math.cos(ang) * d, z = tw.z + Math.sin(ang) * d;
+    if (Math.hypot(x, z) < 12 || !freeAt(x, z, 3.5)) continue;
+    farms.push([x, z, 2 + fr() * 3, 1.5 + fr() * 2.5, fr() * Math.PI, ['#bcd88f', '#a8cf7a', '#d6d99a', '#c7d98a', '#9fc76f', '#e0d9a0'][Math.floor(fr() * 6)]]);
+  }
+  const farmI = new THREE.InstancedMesh(new THREE.BoxGeometry(1, .02, 1), new THREE.MeshStandardMaterial({ roughness: 1 }), farms.length);
+  farms.forEach(([x, z, w, d, r, c], i) => { dummy.position.set(x, .005, z); dummy.rotation.set(0, r, 0); dummy.scale.set(w, 1, d); dummy.updateMatrix(); farmI.setMatrixAt(i, dummy.matrix); farmI.setColorAt(i, col.set(c)); });
+  farmI.receiveShadow = true; world.add(farmI);
+  const lakes = [];
+  for (let k = 0; k < 600 && lakes.length < 34; k++) {
+    const x = (fr() - .5) * 180, z = (fr() - .5) * 180;
+    if (Math.hypot(x, z) < 14 || !freeAt(x, z, 3)) continue;
+    lakes.push([x, z, 1 + fr() * 2.2, .5 + fr() * .6, fr() * Math.PI]);
+  }
+  const lakeI = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, .03, 20), Mt('#9fd3e6', { roughness: .3 }), lakes.length);
+  lakes.forEach(([x, z, r, e, ro], i) => { dummy.position.set(x, .02, z); dummy.rotation.set(0, ro, 0); dummy.scale.set(r, 1, r * e); dummy.updateMatrix(); lakeI.setMatrixAt(i, dummy.matrix); });
+  world.add(lakeI);
+  /* cây: rừng thành cụm ở nông thôn, hàng cây vỉa hè trong phố, lô trống */
   const treePts = [];
   const tr = WORLD.rnd('trees');
-  for (let k = 0; k < 1400 && treePts.length < 900; k++) {
-    const x = (tr() - .5) * 190, z = (tr() - .5) * 190;
-    if (WORLD.inWater(x, z)) continue;
-    const i = Math.floor(x / WORLD.P), j = Math.floor(z / WORLD.P);
-    if (blk.some(b => b.i === i && b.j === j)) continue;
-    treePts.push([x, z, .8 + tr() * .8]);
+  for (let f = 0; f < 140; f++) {
+    const cx = (tr() - .5) * 190, cz = (tr() - .5) * 190, n = 8 + Math.floor(tr() * 18), rad = 1.5 + tr() * 3;
+    if (!freeAt(cx, cz, 2)) continue;
+    for (let k = 0; k < n; k++) { const a = tr() * 7, d = Math.sqrt(tr()) * rad, x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d; if (freeAt(x, z, .5)) treePts.push([x, z, .8 + tr() * .9]); }
   }
-  lots.forEach(p => { if (!p.npc && p.seed > .45) treePts.push([p.x + (p.seed - .7) * .4, p.z + .15, .9]); });
+  for (let k = 0; k < 1600; k++) { const x = (tr() - .5) * 190, z = (tr() - .5) * 190; if (freeAt(x, z, .5)) treePts.push([x, z, .7 + tr() * .8]); }
+  blk.forEach(b => { if (!b.lm) [[-.2, -.2], [3.2, -.2], [-.2, 3.2], [3.2, 3.2]].forEach(([a, c]) => treePts.push([b.x0 + a, b.z0 + c, .65])); });
+  lots.forEach(p => { if (!p.npc && p.seed > .35) treePts.push([p.x + (p.seed - .7) * .4, p.z + .15, .9]); });
   const trunkI = new THREE.InstancedMesh(new THREE.CylinderGeometry(.04, .05, .25, 5), Mt('#8b6b4a'), treePts.length);
   const leafI = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(.2, 0), new THREE.MeshStandardMaterial({ roughness: .9, flatShading: true }), treePts.length);
   const LEAF = ['#5fb85a', '#4fa64f', '#76c46a', '#3f8f48'];
@@ -1133,7 +1223,7 @@ const City = (() => {
   $('loading').classList.add('hidden');
   cityReady = true;
   return {
-    sync, syncSelection, syncCoins, resize, flyTo, cam, updateCamera,
+    sync, syncSelection, syncCoins, resize, flyTo, cam, updateCamera, _dbg: { farmI, lakeI, seaMesh },
     relabel(){ labels.forEach(drawLabel); townLabels.forEach(sp => { sp.userData.lbl0w = sp.scale.x; sp.userData.lbl0h = sp.scale.y; }); updateCamera(); for (const ob of ownedObjs.values()) ob.sig = ''; sync(); },
     rebuild(){ for (const ob of ownedObjs.values()) ob.sig = ''; sync(); },
     screenOf(x, z){ const v = new THREE.Vector3(x, .15, z).project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight]; },
